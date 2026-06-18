@@ -1,0 +1,6 @@
+# API Routes
+Definitions for API endpoints:
+- /upload-video
+- /detect
+- /segment
+- /warning

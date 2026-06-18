@@ -1,0 +1,2 @@
+# Preprocessing Module (CVIP)
+Color space conversions, histogram equalization, filtering, and data augmentation.

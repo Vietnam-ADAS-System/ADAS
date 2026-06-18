@@ -1,0 +1,94 @@
+# File môi trường và khóa bí mật
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.key
+*.pem
+secrets/
+
+# File hệ điều hành và trình soạn thảo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Log và file tạm
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# Node.js
+node_modules/
+**/node_modules/
+dist/
+build/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Mô hình AI và dữ liệu sinh ra
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.pkl
+*.joblib
+runs/
+wandb/
+mlruns/
+weights/
+checkpoints/
+
+# Video, ảnh và mảng dữ liệu lớn
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.npy
+*.npz
+
+# Vẫn cho phép ảnh trong tài liệu
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!docs/**/*.png
+!docs/**/*.svg
+
+# Dữ liệu dự án: chỉ giữ README và .gitkeep
+datasets/**
+!datasets/
+!datasets/README.md
+!datasets/**/
+!datasets/**/.gitkeep
+
+# Kết quả chạy hệ thống: chỉ giữ README và .gitkeep
+outputs/**
+!outputs/
+!outputs/README.md
+!outputs/**/
+!outputs/**/.gitkeep
+
+# File upload khi chạy backend
+backend/node-server/uploads/*
+!backend/node-server/uploads/.gitkeep

@@ -1,0 +1,5 @@
+# Result Fusion
+Combines results from:
+- Vehicle Detection
+- Lane Segmentation
+- Traffic Sign Detection
