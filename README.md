@@ -28,9 +28,10 @@ Python AI Service (FastAPI)
 
 ## Key Features
 
-### 1. Vehicle Detection
-- Real-time detection using YOLOv11
-- Detects: Cars, Buses, Trucks, Motorcycles, Persons
+### 1. Vehicle Object Detection
+- Detects only the assigned classes: Cars, Motorcycles, Persons/Pedestrians
+- Uses Ultralytics YOLO detection models, configurable by `YOLO_VEHICLE_MODEL_PATH`
+- Dedicated code: `backend/ai-service/ai_models/detection/`
 
 ### 2. Lane Detection & Segmentation
 - DeepLabV3+ for semantic lane segmentation
@@ -111,6 +112,27 @@ npm start
 cd backend/ai-service
 pip install -r requirements.txt
 python main.py
+```
+
+#### Object Detection - xe hoi, xe may, nguoi di bo
+```bash
+cd backend/ai-service
+python main.py
+```
+
+Detect image:
+```bash
+curl -X POST "http://127.0.0.1:8000/detect/vehicles" -F "file=@path/to/test.jpg"
+```
+
+Annotated image:
+```bash
+curl -X POST "http://127.0.0.1:8000/detect/vehicles/annotated" -F "file=@path/to/test.jpg" --output annotated.jpg
+```
+
+For highest accuracy, fine-tune with BDD100K or your team's Vietnamese road dataset, then set:
+```env
+YOLO_VEHICLE_MODEL_PATH=backend/ai-service/ai_models/detection/weights/best.pt
 ```
 
 ## Project Workflow
