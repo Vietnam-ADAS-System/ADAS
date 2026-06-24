@@ -1,0 +1,79 @@
+# Git Ignore File
+
+# Frontend
+frontend/node_modules/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/build/
+frontend/dist/
+
+# Backend - Node Server
+backend/node-server/node_modules/
+backend/node-server/.env
+backend/node-server/.env.local
+backend/node-server/npm-debug.log*
+backend/node-server/yarn-debug.log*
+backend/node-server/yarn-error.log*
+backend/node-server/dist/
+
+# Backend - AI Service
+backend/ai-service/__pycache__/
+backend/ai-service/.env
+backend/ai-service/venv/
+backend/ai-service/.venv
+backend/ai-service/*.pyc
+backend/ai-service/*.pyo
+backend/ai-service/*.egg-info/
+backend/ai-service/.pytest_cache/
+backend/ai-service/.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Uploaded Files
+backend/node-server/uploads/*
+!backend/node-server/uploads/.gitkeep
+
+# Model Files (Large)
+*.pt
+*.pth
+*.onnx
+*.h5
+*.pkl
+
+# Dataset (Large) - add specific datasets to track
+# datasets/
+# datasets/* 
+# !datasets/.gitkeep
+# !datasets/*/
+# !datasets/*/.gitkeep
+
+# Outputs (Generated)
+outputs/predictions/*
+outputs/videos/*
+outputs/screenshots/*
+outputs/reports/*
+!outputs/predictions/.gitkeep
+!outputs/videos/.gitkeep
+!outputs/screenshots/.gitkeep
+!outputs/reports/.gitkeep
+
+# Temporary Files
+*.tmp
+*.log
+*.bak

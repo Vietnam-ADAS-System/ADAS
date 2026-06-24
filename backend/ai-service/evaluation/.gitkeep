@@ -1,0 +1,5 @@
+# Model Evaluation
+Metrics:
+- Detection: Precision, Recall, mAP50, mAP50-95
+- Segmentation: IoU, mIoU, Pixel Accuracy
+- System: FPS, Latency

@@ -1,0 +1,6 @@
+# FastAPI
+REST API endpoints for:
+- Detection
+- Segmentation
+- Tracking
+- ADAS Warnings
