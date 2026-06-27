@@ -1,13 +1,32 @@
-# File môi trường và khóa bí mật
+# ==============================================================================
+# 1. HỆ THỐNG CẤM (BLACKLIST) - THEO YÊU CẦU ĐẶC BIỆT
+# ==============================================================================
+
+# Cấm đẩy tất cả các file dữ liệu và cấu hình định dạng JSON
+*.json
+**/ *.json
+
+# Cấm đẩy toàn bộ thư mục dữ liệu huấn luyện (datasets)
+datasets/
+**/datasets/**
+
+# Cấm đẩy tất cả các định dạng video mã nguồn nặng
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Cấm tuyệt đối file môi trường và khóa bảo mật công việc
 .env
 .env.*
-!.env.example
-!**/.env.example
 *.key
 *.pem
 secrets/
 
-# File hệ điều hành và trình soạn thảo
+# ==============================================================================
+# 2. CẤM CÁC FILE RÁC HỆ ĐIỀU HÀNH VÀ TRÌNH SOẠN THẢO
+# ==============================================================================
 .DS_Store
 Thumbs.db
 .vscode/
@@ -15,88 +34,75 @@ Thumbs.db
 *.swp
 *~
 
-# Log và file tạm
+# ==============================================================================
+# 3. CẤM LOGS, PHẦN PHỤ THUỘC VÀ FILE TẠM CỦA NGÔN NGỮ
+# ==============================================================================
+node_modules/
+**/node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
 *.log
 logs/
 tmp/
 temp/
 .cache/
-
-# Node.js
-node_modules/
-**/node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 dist/
 build/
 coverage/
 
-# Python
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.venv/
-venv/
-env/
-.ipynb_checkpoints/
-
-# Mô hình AI và dữ liệu sinh ra
-*.pt
+# Cấm các file chạy thực nghiệm cục bộ và các định dạng mô hình AI khác
+runs/
+wandb/
+mlruns/
+checkpoints/
 *.pth
 *.onnx
 *.engine
 *.tflite
 *.pkl
 *.joblib
-runs/
-wandb/
-mlruns/
-weights/
-checkpoints/
+*.npy
+*.npz
 
-# Video, ảnh và mảng dữ liệu lớn
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.webm
+# Cấm các định dạng ảnh ở thư mục chung (trừ phân hệ AI được mở rộng bên dưới)
 *.jpg
 *.jpeg
 *.png
 *.bmp
 *.tif
 *.tiff
-*.npy
-*.npz
 
-# Vẫn cho phép ảnh trong tài liệu
+# ==============================================================================
+# 4. HỆ THỐNG NGOẠI LỆ (WHITELIST) - CHO PHÉP ĐẨY LÊN
+# ==============================================================================
+
+# Cho phép đẩy các thư mục 'weights' và file mô hình '.pt' của TẤT CẢ các phân hệ AI
+!backend/ai-service/ai_models/**/weights/
+!backend/ai-service/ai_models/**/weights/*.pt
+
+# Cho phép đẩy TẤT CẢ các file ảnh kết quả/báo cáo trong mọi thư mục con của ai_models
+!backend/ai-service/ai_models/**/*.jpg
+!backend/ai-service/ai_models/**/*.jpeg
+!backend/ai-service/ai_models/**/*.png
+!backend/ai-service/ai_models/**/*.bmp
+!backend/ai-service/ai_models/**/*.tif
+!backend/ai-service/ai_models/**/*.tiff
+
+# Vẫn cho phép ảnh phục vụ viết tài liệu hướng dẫn hệ thống bên ngoài
 !docs/**/*.jpg
 !docs/**/*.jpeg
 !docs/**/*.png
 !docs/**/*.svg
 
-# Dữ liệu dự án: chỉ giữ README và .gitkeep
-datasets/**
-!datasets/
-!datasets/README.md
-!datasets/**/
-!datasets/**/.gitkeep
-
-# Kết quả chạy hệ thống: chỉ giữ README và .gitkeep
-outputs/**
+# Cho phép giữ cấu trúc thư mục outputs bằng file .gitkeep
 !outputs/
-!outputs/README.md
 !outputs/**/
 !outputs/**/.gitkeep
-
-# File upload khi chạy backend
-backend/node-server/uploads/*
-!backend/node-server/uploads/.gitkeep
-
-
-# Cho phép đẩy các thư mục 'weights' và file mô hình '.pt' trong tất cả các phân hệ AI
-!backend/ai-service/ai_models/**/weights/
-!backend/ai-service/ai_models/**/weights/*.pt
-
-# Cho phép đẩy tất cả ảnh báo cáo kết quả trong các thư mục 'evaluation'
-!backend/ai-service/ai_models/**/evaluation/**
