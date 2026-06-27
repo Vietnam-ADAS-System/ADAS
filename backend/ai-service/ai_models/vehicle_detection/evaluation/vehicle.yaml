@@ -1,0 +1,10 @@
+path: /kaggle/input/datasets/keyshiftf/vehicle-danang-2025/merged_dataset
+train: images/train
+val: images/val
+test: images/test
+nc: 4
+names:
+- car
+- motorbike
+- bus
+- truck
