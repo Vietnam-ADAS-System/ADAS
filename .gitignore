@@ -92,3 +92,10 @@ outputs/**
 # File upload khi chạy backend
 backend/node-server/uploads/*
 !backend/node-server/uploads/.gitkeep
+
+# Cho phép đẩy thư mục weights và file model của Vehicle Detection
+!backend/ai-service/ai_models/vehicle_detection/weights/
+!backend/ai-service/ai_models/vehicle_detection/weights/*.pt
+
+# Đảm bảo toàn bộ ảnh trong evaluation của Vehicle Detection không bị chặn
+!backend/ai-service/ai_models/vehicle_detection/evaluation/**
