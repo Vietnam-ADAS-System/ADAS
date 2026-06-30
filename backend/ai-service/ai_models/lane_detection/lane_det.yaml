@@ -1,0 +1,61 @@
+# YOLOv11 Lane Detection Configuration
+
+# Model type: Detection (bounding boxes)
+model: yolo11n.pt  # Start from pretrained
+
+# Dataset paths - update these on Kaggle
+path: /kaggle/input/lane-detection-yolo
+train: train/images
+val: val/images
+test: test/images
+
+# Classes - 11 lane types
+names:
+  0: broken_and_solid_lines_white_lane
+  1: broken_and_solid_lines_yellow_lane
+  2: broken_line_white_lane
+  3: broken_line_yellow_lane
+  4: double_solid_line_white_lane
+  5: double_solid_line_yellow_lane
+  6: left_turn
+  7: right_turn
+  8: solid_line_white_lane
+  9: solid_line_yellow_lane
+  10: straight_way
+
+# Number of classes
+nc: 11
+
+# Image size
+imgsz: 640
+
+# Training hyperparameters
+epochs: 100
+batch: 16
+device: 0  # GPU, or 'mps' for Apple Silicon, 'cpu' for CPU
+
+# Data augmentation
+augment: True
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+fliplr: 0.5
+mosaic: 1.0
+mixup: 0.1
+
+# Optimizer
+optimizer: AdamW
+lr0: 0.001
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+
+# Save
+save: True
+save_period: 10
+patience: 30
+project: lane_detection
+name: yolo11_det

@@ -1,0 +1,53 @@
+# YOLOv11 Lane Segmentation Configuration
+
+# Dataset paths - update these on Kaggle
+path: /kaggle/input/via-lane-segmentation/lane_seg_yolo
+train: train/images
+val: val/images
+test: test/images
+
+# Classes
+names:
+  0: lane_line
+  1: road
+
+# Number of classes
+nc: 2
+
+# Image size
+imgsz: 640
+
+# Training hyperparameters
+epochs: 100
+batch: 8
+imgsz: 640
+device: 0  # GPU, or 'mps' for Apple Silicon, 'cpu' for CPU
+
+# Model
+model: yolo11n-seg.pt  # Start from pretrained
+
+# Data augmentation
+augment: True
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+fliplr: 0.5
+mosaic: 1.0
+mixup: 0.1
+
+# Optimizer
+optimizer: AdamW
+lr0: 0.001
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+
+# Save
+save: True
+save_period: 10
+patience: 30
+project: lane_detection
+name: yolo11_seg_via
