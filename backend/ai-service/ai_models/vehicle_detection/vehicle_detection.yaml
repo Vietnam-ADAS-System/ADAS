@@ -1,0 +1,18 @@
+# YOLO detection dataset for the assigned classes only.
+# Expected structure:
+# datasets/vehicle_detection/
+#   images/train, images/val
+#   labels/train, labels/val
+#
+# Convert BDD100K/COCO annotations to YOLO txt format and keep only:
+# 0 person, 1 car, 2 motorcycle
+
+path: ../../../../datasets/vehicle_detection
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: person
+  1: car
+  2: motorcycle
