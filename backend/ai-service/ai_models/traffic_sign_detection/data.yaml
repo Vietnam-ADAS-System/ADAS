@@ -1,0 +1,65 @@
+# 1. Đường dẫn tuyệt đối đến thư mục chứa data
+path: D:/Xử lý ảnh bk/datasets/traffic_sign
+
+# 2. Thư mục con chứa ảnh train và val (YOLO sẽ tự tìm thư mục labels tương ứng)
+train: images/train
+val: images/val
+
+# 3. Tổng số lượng lớp của dữ liệu mới
+nc: 52
+
+# 4. Tên của 52 lớp (được trích xuất từ file classes_vie.txt của bạn)
+# Lưu ý: Viết không dấu để hệ thống chạy ổn định, không lỗi font
+names:
+  0: Duong nguoi di bo cat ngang
+  1: Duong giao nhau ngay ba ben phai
+  2: Cam di nguoc chieu
+  3: Phai di vong sang ben phai
+  4: Giao nhau voi duong dong cap
+  5: Giao nhau voi duong khong uu tien
+  6: Cho ngoat nguy hiem vong ben trai
+  7: Cam re trai
+  8: Ben xe buyt
+  9: Noi giao nhau chay theo vong xuyen
+  10: Cam dung va do xe
+  11: Cho quay xe
+  12: Bien gop lan duong theo phuong tien
+  13: Di cham
+  14: Cam xe tai
+  15: Duong bi thu hep ve phia phai
+  16: Gioi han chieu cao
+  17: Cam quay dau
+  18: Cam o to khach va o to tai
+  19: Cam re phai va quay dau
+  20: Cam o to
+  21: Duong bi thu hep ve phia trai
+  22: Go giam toc phia truoc
+  23: Cam xe hai va ba banh
+  24: Kiem tra
+  25: Chi danh cho xe may
+  26: Chuong ngai vat phia truoc
+  27: Tre em
+  28: Xe tai va xe cong
+  29: Cam mo to va xe may
+  30: Chi danh cho xe tai
+  31: Duong co camera giam sat
+  32: Cam re phai
+  33: Nhieu cho ngoat nguy hiem lien tiep, cho dau tien sang phai
+  34: Cam xe so-mi ro-mooc
+  35: Cam re trai va phai
+  36: Cam di thang va re phai
+  37: Duong giao nhau ngay ba ben trai
+  38: Gioi han toc do 50kmh
+  39: Gioi han toc do 60kmh
+  40: Gioi han toc do 80kmh
+  41: Gioi han toc do 40kmh
+  42: Re trai
+  43: Chieu cao tinh khong han che
+  44: Nguy hiem khac
+  45: Duong mot chieu
+  46: Cam do xe
+  47: Cam o to quay dau
+  48: Giao nhau voi duong sat co rao chan
+  49: Cam o to quay dau va re trai
+  50: Cho ngoat nguy hiem vong ben phai
+  51: Chuong ngai vat phia truoc - di vong sang ben phai
