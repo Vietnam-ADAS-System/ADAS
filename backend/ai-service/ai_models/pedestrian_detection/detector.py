@@ -56,8 +56,15 @@ class PedestrianDetector:
         """Khởi tạo model - dùng thư viện ultralytics"""
         try:
             from ultralytics import YOLO
-            logger.info(f"Loading model: {self.model_name}")
-            self.model = YOLO(f"{self.model_name}.pt")
+            
+            # Hỗ trợ cả full path (best.pt) và model name (yolo11n)
+            model_path = self.model_name
+            if not model_path.endswith(".pt"):
+                # Nếu là model name, thêm .pt
+                model_path = f"{model_path}.pt"
+            
+            logger.info(f"Loading model: {model_path}")
+            self.model = YOLO(model_path)
             logger.info("Model loaded successfully!")
         except ImportError:
             logger.warning("ultralytics not installed. Using mock detector for demo.")
