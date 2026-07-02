@@ -78,11 +78,14 @@ class TrafficSignVision:
         frame_for_inference = module.apply_preprocessing(
             frame,
             enable_preprocessing=self.enable_preprocessing,
-            preprocessing_config={"enable_preprocessing": True},
+            preprocessing_config={
+                "enable_preprocessing": True,
+                "apply_resize": False,  # ✓ YOLO tự xử lý letterbox
+            },
         )
         results = self.model.predict(
             source=frame_for_inference,
-            conf=0.1,
+            conf=0.15,
             agnostic_nms=True,
             verbose=False,
         )

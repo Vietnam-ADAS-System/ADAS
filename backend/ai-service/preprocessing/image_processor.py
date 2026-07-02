@@ -114,15 +114,19 @@ class ImageProcessor:
         self,
         frame: np.ndarray,
         target_size: Optional[Tuple[int, int]] = None,
-        apply_resize: bool = True,
+        apply_resize: bool = False,
     ) -> np.ndarray:
         """
-        BGR → CLAHE mạnh hơn (clip_limit=3.0) → BGR
-        Dùng cho: YOLOv11 traffic sign — cần contrast cao để phân biệt màu biển báo
+        BGR → median_filter (nhẹ) → BGR
+        ❌ BỎ CLAHE (thay đổi domain màu sắc — lệch so với data train)
+        ❌ BỎ resize bắt buộc (mất chi tiết biển báo, YOLO tự xử lý letterbox)
+        ✓ Chỉ áp median filter (kernel=3) để loại salt-and-pepper noise
+        ✓ Để YOLO tự resize ảnh lên imgsz=960 → đúng domain train
+        Dùng cho: YOLOv11 traffic sign (imgsz=960) — giữ nguyên domain train
         """
-        if apply_resize:
-            frame = self.resize(frame, size=target_size)
-        return clahe(frame, clip_limit=3.0)
+        # Không resize — YOLO xử lý letterbox padding tự động
+        # Chỉ loại nhiễu hạt nhẹ (salt-and-pepper từ camera)
+        return median_filter(frame, kernel_size=3)
 
     def preprocess_for_tracking(self, frame: np.ndarray) -> np.ndarray:
         """

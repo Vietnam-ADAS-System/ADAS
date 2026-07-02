@@ -12,24 +12,56 @@ if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from preprocessing.image_processor import ImageProcessor
+from preprocessing.utils.visualizer import save_comparison
 
 
 def apply_preprocessing(
     frame,
     enable_preprocessing: bool = True,
     preprocessing_config: Optional[Dict[str, Any]] = None,
+    visualize: bool = False,
+    output_dir: str = "",
 ):
-    """Apply configurable preprocessing before traffic sign inference."""
+    """
+    Apply configurable preprocessing before traffic sign inference.
+    
+    Parameters:
+    -----------
+    frame : np.ndarray
+        Input image (BGR)
+    enable_preprocessing : bool
+        Whether to apply preprocessing
+    preprocessing_config : dict
+        Config with apply_resize=False (YOLO tự xử lý letterbox)
+    visualize : bool
+        Save before/after comparison image
+    output_dir : str
+        Directory to save comparison image
+    
+    Returns:
+    --------
+    Preprocessed image (BGR)
+    """
     if not enable_preprocessing or frame is None or frame.size == 0:
         return frame
 
+    frame_original = frame.copy()
     preprocessing_config = preprocessing_config or {"enable_preprocessing": True}
     processor = ImageProcessor(target_size=(frame.shape[1], frame.shape[0]))
-    return processor.apply_module_preprocessing(
+    frame_processed = processor.apply_module_preprocessing(
         frame,
         module_name="traffic_sign",
         config=preprocessing_config,
     )
+    
+    if visualize and output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        comparison_path = os.path.join(output_dir, "preprocessing_comparison.jpg")
+        save_comparison(frame_original, frame_processed, comparison_path, 
+                       title="Traffic Sign Preprocessing (Original | After Median Filter)")
+        print(f"[preprocessing] Visualized: {comparison_path}")
+    
+    return frame_processed
 
 def process_frame(frame, results, model_names, mapping_fix):
     """Hàm phụ trợ để vẽ bounding box và nhãn lên frame/ảnh"""
@@ -59,11 +91,13 @@ def infer_traffic_sign(model, frame, preprocessing_config: Optional[Dict[str, An
     """Run traffic-sign inference with a higher traffic-sign-only input size."""
     preprocessing_config = preprocessing_config or {}
     imgsz = int(preprocessing_config.get("imgsz", 960))
-    conf = float(preprocessing_config.get("conf", 0.1))
+    conf = float(preprocessing_config.get("conf", 0.15))   # tăng từ 0.1 lên 0.4
+    iou = float(preprocessing_config.get("iou", 0.45))     # thêm mới, giảm từ default 0.7
     agnostic_nms = bool(preprocessing_config.get("agnostic_nms", True))
     return model.predict(
         source=frame,
         conf=conf,
+        iou=iou,
         imgsz=imgsz,
         agnostic_nms=agnostic_nms,
         verbose=False,
@@ -131,16 +165,19 @@ def main():
                 "enable_preprocessing": True,
                 "apply_resize": False,
             },
+            visualize=True,
+            output_dir=output_dir,
         )
         results = infer_traffic_sign(
-            model,
-            img_cv,
-            preprocessing_config={
-                "imgsz": 960,
-                "conf": 0.1,
-                "agnostic_nms": True,
-            },
-        )
+    model,
+    img_cv,
+    preprocessing_config={
+        "imgsz": 960,
+        "conf": 0.15,      # sửa từ 0.1
+        "iou": 0.45,      # thêm mới
+        "agnostic_nms": True,
+    },
+)
         
         print("\n--- KẾT QUẢ PHÂN TÍCH BIỂN BÁO ---")
         for result in results:
@@ -191,14 +228,15 @@ def main():
                 },
             )
             results = infer_traffic_sign(
-                model,
-                frame,
-                preprocessing_config={
-                    "imgsz": 960,
-                    "conf": 0.1,
-                    "agnostic_nms": True,
-                },
-            )
+    model,
+    img_cv,
+    preprocessing_config={
+        "imgsz": 960,
+        "conf": 0.15,      # sửa từ 0.1
+        "iou": 0.45,      # thêm mới
+        "agnostic_nms": True,
+    },
+)
             frame = process_frame(frame, results, model.names, mapping_fix)
             out.write(frame)
             

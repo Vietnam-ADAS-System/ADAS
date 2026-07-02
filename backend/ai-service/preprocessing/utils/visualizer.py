@@ -34,3 +34,28 @@ def save_image(image: np.ndarray, save_path: str) -> None:
     """Tạo thư mục nếu chưa có, lưu ảnh"""
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     cv2.imwrite(save_path, image)
+
+
+def save_comparison(original: np.ndarray, processed: np.ndarray,
+                    save_path: str, title: str = "Before | After") -> None:
+    """
+    Lưu ảnh so sánh before/after vào file (thay vì chỉ hiển thị).
+    Hữu dụng cho CI/CD hoặc khi không có display.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # Tạo ảnh đôi (side-by-side)
+    if len(original.shape) == 3 and original.shape[2] == 3:
+        h, w = original.shape[:2]
+        combined = np.zeros((h, w * 2, 3), dtype=original.dtype)
+        combined[:, :w] = original
+        combined[:, w:] = processed if len(processed.shape) == 3 else cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR)
+    else:
+        # Grayscale
+        h, w = original.shape[:2]
+        combined = np.zeros((h, w * 2), dtype=original.dtype)
+        combined[:, :w] = original if len(original.shape) == 2 else cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+        combined[:, w:] = processed
+    
+    cv2.imwrite(save_path, combined)
+    print(f"[visualizer] Lưu ảnh so sánh: {save_path}")
