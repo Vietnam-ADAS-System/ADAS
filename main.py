@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import io
 import sys
 import tempfile
@@ -19,7 +20,45 @@ AI_SERVICE_ROOT = REPO_ROOT / "backend" / "ai-service"
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from adas import ADASDecisionEngine
+APP_CACHE_VERSION = "adas-fusion-lane-departure-v4"
+
+def _has_signature_parameter(callable_obj: Any, parameter_name: str) -> bool:
+    try:
+        return parameter_name in inspect.signature(callable_obj).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _drop_adas_modules() -> None:
+    for module_name in list(sys.modules):
+        if module_name == "adas" or module_name.startswith("adas."):
+            sys.modules.pop(module_name, None)
+
+
+def _drop_stale_adas_modules() -> None:
+    importlib.invalidate_caches()
+
+    lane_departure_module = sys.modules.get("adas.lane_departure")
+    if lane_departure_module is not None and not hasattr(lane_departure_module, "__path__"):
+        _drop_adas_modules()
+        return
+
+    data_models_module = sys.modules.get("adas.data_models")
+    output_class = getattr(data_models_module, "ADASOutput", None)
+    if output_class is not None and not _has_signature_parameter(output_class, "lane_departure"):
+        _drop_adas_modules()
+        return
+
+    decision_engine_module = sys.modules.get("adas.decision_engine")
+    engine_class = getattr(decision_engine_module, "ADASDecisionEngine", None)
+    evaluate_method = getattr(engine_class, "evaluate", None)
+    if evaluate_method is not None and not _has_signature_parameter(evaluate_method, "frame_size"):
+        _drop_adas_modules()
+
+
+_drop_stale_adas_modules()
+
+from adas.lane_departure import draw_lane_departure_overlay
 from fusion import FusionEngine
 
 
@@ -169,9 +208,16 @@ def _load_module(module_name: str, file_path: Path):
     return module
 
 
+def _create_adas_engine() -> Any:
+    importlib.invalidate_caches()
+    decision_module = importlib.import_module("adas.decision_engine")
+    return decision_module.ADASDecisionEngine()
+
+
 @st.cache_resource
 
-def load_models(enable_preprocessing: bool) -> Dict[str, Any]:
+def load_models(enable_preprocessing: bool, cache_version: str = APP_CACHE_VERSION) -> Dict[str, Any]:
+    _ = cache_version
     pedestrian_module = _load_module("adas_pedestrian_detection", MODULE_PATHS["pedestrian"])
     vehicle_module = _load_module("adas_vehicle_detection", MODULE_PATHS["vehicle"])
     lane_detection_module = _load_module("adas_lane_detection", MODULE_PATHS["lane_detection"])
@@ -203,7 +249,7 @@ def load_models(enable_preprocessing: bool) -> Dict[str, Any]:
         ),
         "tracker": tracking_module.ObjectTracker(),
         "fusion": FusionEngine(),
-        "adas": ADASDecisionEngine(),
+        "adas": _create_adas_engine(),
     }
     return models
 
@@ -327,6 +373,24 @@ def _annotate_frame_with_warnings(frame: np.ndarray, adas_output: Dict[str, Any]
     return annotated
 
 
+def _evaluate_adas(models: Dict[str, Any], scene_context: Any, frame_size: Tuple[int, int]) -> Any:
+    adas_engine = models["adas"]
+    try:
+        return adas_engine.evaluate(scene_context, frame_size=frame_size)
+    except TypeError as exc:
+        if "frame_size" not in str(exc):
+            raise
+
+    adas_engine = _create_adas_engine()
+    models["adas"] = adas_engine
+    try:
+        return adas_engine.evaluate(scene_context, frame_size=frame_size)
+    except TypeError as exc:
+        if "frame_size" not in str(exc):
+            raise
+        return adas_engine.evaluate(scene_context)
+
+
 def draw_results(
     frame: np.ndarray,
     models: Dict[str, Any],
@@ -392,9 +456,10 @@ def draw_results(
         pedestrian_detections=pedestrian_detections,
         fps=fps,
     )
-    adas_output = models["adas"].evaluate(scene_context)
+    adas_output = _evaluate_adas(models, scene_context, frame_size=(frame.shape[1], frame.shape[0]))
     scene_context_dict = scene_context.to_dict()
     adas_output_dict = adas_output.to_dict()
+    output = draw_lane_departure_overlay(output, adas_output_dict.get("lane_departure", []))
     output = _annotate_frame_with_warnings(output, adas_output_dict)
 
     elapsed = (cv2.getTickCount() - started) / cv2.getTickFrequency()
@@ -606,7 +671,7 @@ def main() -> None:
     st.caption("Streamlit demo cho ảnh, video và webcam với preprocessing tích hợp")
 
     config = render_sidebar()
-    models = load_models(config.enable_preprocessing)
+    models = load_models(config.enable_preprocessing, APP_CACHE_VERSION)
 
     if config.mode == "Ảnh":
         render_image_mode(config, models)

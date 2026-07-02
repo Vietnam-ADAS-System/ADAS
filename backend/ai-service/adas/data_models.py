@@ -39,14 +39,47 @@ class Warning:
         return data
 
 
+def normalize_priority(priority: Any) -> str:
+    value = str(priority or "INFO").upper()
+    return value if value in PRIORITY_RANK else "INFO"
+
+
+def warning_from_any(value: Any) -> Warning:
+    if isinstance(value, Warning):
+        return value
+
+    if isinstance(value, dict):
+        track_id = value.get("track_id")
+        try:
+            track_id = None if track_id is None else int(track_id)
+        except (TypeError, ValueError):
+            track_id = None
+
+        return Warning(
+            type=str(value.get("type", "UNKNOWN")),
+            priority=normalize_priority(value.get("priority")),
+            message=str(value.get("message", value.get("type", "Warning"))),
+            action=value.get("action"),
+            value=value.get("value"),
+            track_id=track_id,
+        )
+
+    return Warning(
+        type=type(value).__name__,
+        priority="INFO",
+        message=str(value),
+    )
+
+
 @dataclass(frozen=True)
 class ADASOutput:
     frame: int
     warnings: Sequence[Warning] = field(default_factory=list)
+    lane_departure: Sequence[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "frame": self.frame,
-            "warnings": [warning.to_dict() for warning in self.warnings],
+            "warnings": [warning_from_any(warning).to_dict() for warning in self.warnings],
+            "lane_departure": list(self.lane_departure),
         }
-

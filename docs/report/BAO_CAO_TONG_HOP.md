@@ -1,12 +1,12 @@
 # Báo cáo tổng hợp — Hệ thống ADAS
 
-**Ngày cập nhật:** 2026-07-02  
+**Ngày cập nhật:** 2026-07-03  
 **Người/agent thực hiện:** AI coding agent thực hiện theo yêu cầu  
-**Phạm vi báo cáo:** Tổng hợp 4 hạng mục: Preprocessing Integration, App demo main.py, Tối ưu Traffic Sign xa, Tracking DeepSORT
+**Phạm vi báo cáo:** Tổng hợp 5 hạng mục: Preprocessing Integration, App demo main.py, Tối ưu Traffic Sign xa, Tracking DeepSORT, Fusion Layer và ADAS Decision Engine
 
 ## 1. Tóm tắt điều hành (Executive Summary)
 
-Trong khoảnh khắc hiện tại, dự án ADAS đã có những thay đổi thực tế ở cả tầng tiền xử lý ảnh, tầng demo giao diện và tầng theo dõi đối tượng. Điểm nổi bật nhất là module tiền xử lý chung đã được tích hợp vào các detector chính: pedestrian, vehicle, lane detection, lane segmentation và traffic sign. Cấu trúc này cho phép bật/tắt preprocessing thông qua cấu hình và giúp các module inference có thể dùng chung một interface. Ở tầng demo, file root main.py đã được chuyển thành ứng dụng Streamlit hỗ trợ ảnh, video và webcam, cho phép người dùng lựa chọn module và xem kết quả trực quan trên giao diện. Về traffic sign, mã đã được bổ sung các tùy chọn để giữ độ phân giải cao hơn cho ảnh đầu vào và tăng tham số inference phù hợp cho biển báo ở xa. Ở tầng tracking, module DeepSORT đã được thêm vào repo với lớp tracker riêng cho vehicle và pedestrian, cùng fallback IoU khi DeepSORT không sẵn sàng. Tuy nhiên, các benchmark trước/sau chưa được đo bằng bộ dữ liệu gắn nhãn chuẩn trong workspace, nên các kết luận về tăng accuracy vẫn cần được kiểm chứng thêm trên dữ liệu thực tế.
+Trong khoảnh khắc hiện tại, dự án ADAS đã có những thay đổi thực tế ở cả tầng tiền xử lý ảnh, tầng demo giao diện, tầng theo dõi đối tượng và tầng hiểu ngữ cảnh. Điểm nổi bật nhất là module tiền xử lý chung đã được tích hợp vào các detector chính: pedestrian, vehicle, lane detection, lane segmentation và traffic sign. Cấu trúc này cho phép bật/tắt preprocessing thông qua cấu hình và giúp các module inference có thể dùng chung một interface. Ở tầng demo, file root main.py đã được chuyển thành ứng dụng Streamlit hỗ trợ ảnh, video và webcam, cho phép người dùng lựa chọn module, xem kết quả trực quan, đồng thời mở phần `Scene Context / ADAS Output` để xem dữ liệu Fusion và cảnh báo ADAS. Về traffic sign, mã đã được bổ sung các tùy chọn để giữ độ phân giải cao hơn cho ảnh đầu vào và tăng tham số inference phù hợp cho biển báo ở xa. Ở tầng tracking, module DeepSORT đã được thêm vào repo với lớp tracker riêng cho vehicle và pedestrian, cùng fallback IoU khi DeepSORT không sẵn sàng. Bổ sung quan trọng mới nhất là tầng Fusion tại `backend/ai-service/fusion/`, có nhiệm vụ tổng hợp detection, lane, traffic sign và tracking thành `SceneContext`; sau đó tầng `backend/ai-service/adas/` chỉ đọc `SceneContext` để sinh cảnh báo. Tuy nhiên, các benchmark trước/sau chưa được đo bằng bộ dữ liệu gắn nhãn chuẩn trong workspace, nên các kết luận về tăng accuracy vẫn cần được kiểm chứng thêm trên dữ liệu thực tế.
 
 ## 2. Sơ đồ phụ thuộc giữa các hạng mục
 
@@ -42,6 +42,19 @@ Các hạng mục đã thực hiện nằm ở các tầng khác nhau của pipe
 - Kết quả test: repo có tài liệu project-state.md ghi rằng tracking module đã được test bằng mock detections, frame 1→2 ID consistency và serialization to_dict. Tuy nhiên, không có file test thực thi mới trong workspace được cung cấp cùng với report này, và không có số liệu FPS cụ thể được ghi lại trong repo. Vì vậy, có thể nói module đã được triển khai và có logic test, nhưng chưa có benchmark runtime bằng video thực tế được lưu ở đâu đó.
 - Trạng thái: Hoàn thành. Mã tracking và tài liệu mô tả đã có trong repo, nhưng các kiểm thử thực tế với video dài và số liệu FPS chưa được ghi nhận đầy đủ.
 
+### 3.5 Fusion Layer và ADAS Decision Engine
+- Mục tiêu ban đầu: xây dựng tầng trung gian đúng theo đặc tả Fusion, trong đó Fusion không chạy YOLO, không chạy lane segmentation, không chạy DeepSORT và không sinh cảnh báo. Fusion chỉ nhận dữ liệu đã có từ AI layer, chuẩn hóa dữ liệu, tính ngữ cảnh giao thông và tạo ra một đối tượng `SceneContext` duy nhất. ADAS Decision Engine sau đó chỉ đọc `SceneContext` để đưa ra cảnh báo, không đọc trực tiếp bbox, mask, tensor hoặc YOLO result.
+- Cấu trúc đã triển khai: thư mục `backend/ai-service/fusion/` gồm các module chính `data_models.py`, `config.py`, `utils.py`, `vehicle_lane_fusion.py`, `tracking_fusion.py`, `traffic_sign_fusion.py`, `scene_understanding.py`, `decision_engine.py` và `README.md`. Thư mục `backend/ai-service/adas/` gồm `decision_engine.py`, `lane_departure.py`, `traffic_rule.py`, `speed_limit.py`, `stop_warning.py`, `no_entry_warning.py`, `warning_manager.py`, `dashboard_output.py`, `data_models.py`, `config.py` và `utils.py`. Cách chia file này bám theo nguyên tắc mỗi module chỉ xử lý một nhiệm vụ.
+- Luồng xử lý Fusion: `FusionEngine.build_scene_context()` nhận `vehicle_detections`, `lane_detection`, `traffic_sign_detections`, `tracking`, `pedestrian_detections`, `frame_index` và `fps`. Dữ liệu đầu vào được chuẩn hóa thành các model như `VehicleDetection`, `LaneInfo`, `TrafficSign`, `TrackInfo` và `PedestrianDetection`. Sau đó hệ thống chạy lần lượt `VehicleLaneFusion`, `TrackingFusion`, `TrafficSignFusion`, `SceneUnderstandingEngine` và `FusionDecisionEngine` để trả về `SceneContext`.
+- Logic Vehicle Lane Fusion: module `vehicle_lane_fusion.py` tính tâm phương tiện từ bbox, lấy lane left/right/center từ lane detection hoặc lane mask, tính `offset = vehicle_center_x - lane_center_x`, phân loại lane tương đối thành `left`, `center`, `right` hoặc `unknown`, đồng thời xác định `lane_status` gồm `inside_lane`, `near_boundary`, `outside_lane`, `crossing_lane` hoặc `unknown`. Đây là dữ liệu chính cho cảnh báo lệch làn.
+- Logic Tracking Fusion: module `tracking_fusion.py` ghép detection với track bằng IoU, dùng ngưỡng `tracking_iou_threshold` trong `FusionConfig`. Module này bỏ qua track thuộc nhóm `person/pedestrian` khi ghép cho vehicle để tránh gán nhầm track người đi bộ cho phương tiện. Output là `TrackingAssociation` gồm `detection_id`, `track_id` và trạng thái `tracking`.
+- Logic Traffic Sign Fusion: module `traffic_sign_fusion.py` chọn biển báo có confidence cao nhất, chuẩn hóa các kiểu biển báo như `Speed Limit`, `STOP`, `NO_ENTRY`, `YIELD`, `PARKING`, đồng thời tách giá trị tốc độ nếu biển báo là giới hạn tốc độ. Output là `TrafficRule` có `type` và `value`.
+- Scene Context chuẩn: output cuối cùng của Fusion là `SceneContext` có các trường chính `frame`, `vehicles`, `traffic_rule`, `timestamp` và tùy chọn `pedestrians`. Mỗi phần tử vehicle gồm `track_id`, `type`, `lane`, `lane_status`, `offset`, `center`, `speed` và `tracking`. Cấu trúc này đúng với mục tiêu “ADAS chỉ đọc Scene Context”.
+- ADAS Decision Engine: thư mục `backend/ai-service/adas/` nhận `SceneContext` và tạo `ADASOutput`. Các rule hiện có gồm lane departure/lane crossing, STOP warning, no-entry warning và speed limit/overspeed. `WarningManager` loại bỏ cảnh báo trùng theo cặp `(type, track_id)` và sắp xếp theo mức ưu tiên `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
+- Tích hợp vào main.py: root `main.py` đã load thêm `FusionEngine`, `ADASDecisionEngine` và `ObjectTracker`. Hàm `draw_results()` không chỉ vẽ output từ các model mà còn gom dữ liệu detection/lane/sign/tracking, gọi `build_scene_context()`, gọi `ADASDecisionEngine.evaluate()`, rồi trả về `FrameAnalysis` gồm ảnh annotate, counts, elapsed_seconds, scene_context và adas_output. Ở chế độ ảnh và webcam, Streamlit hiển thị thêm expander `Scene Context / ADAS Output` để kiểm tra dữ liệu Fusion và cảnh báo.
+- Kết quả test logic: đã kiểm tra bằng dữ liệu mẫu không cần model thật. Với vehicle bbox `[300,320,400,520]`, lane center `320`, speed limit `40`, track_id `5` và current_speed `60`, Fusion sinh `SceneContext` có vehicle center `[350,420]`, offset `30`, track_id `5`, traffic_rule `Speed Limit 40`; ADAS sinh cảnh báo `Overspeed` mức `HIGH`. Ngoài ra, các file `main.py`, `fusion/` và `adas/` đã qua bước `python -m py_compile`.
+- Trạng thái: Hoàn thành phần kiến trúc và logic lõi. Fusion/ADAS đã có code, data model, module độc lập và tích hợp vào app demo. Phần còn thiếu là benchmark với video thực tế, kiểm thử nhiều tình huống lane phức tạp, và kiểm chứng đầy đủ các cảnh báo trên dữ liệu gắn nhãn.
+
 ## 4. Bảng tổng hợp file bị ảnh hưởng
 
 | Đường dẫn file | Loại thay đổi | Hạng mục liên quan | Mô tả ngắn |
@@ -53,10 +66,32 @@ Các hạng mục đã thực hiện nằm ở các tầng khác nhau của pipe
 | backend/ai-service/ai_models/lane_detection/detector.py | Sửa | Preprocessing | Gắn preprocessing cho lane detection |
 | backend/ai-service/ai_models/lane_segmentation/predict.py | Sửa | Preprocessing | Gắn preprocessing cho segmentation |
 | backend/ai-service/ai_models/traffic_sign_detection/predict.py | Sửa | Preprocessing + Traffic Sign | Cấu hình preprocessing và inference cho traffic sign |
-| main.py | Sửa | App demo | Streamlit app cho ảnh/video/webcam |
+| main.py | Sửa | App demo + Fusion + ADAS | Streamlit app cho ảnh/video/webcam, tích hợp Scene Context và ADAS Output |
 | backend/ai-service/requirements.txt | Sửa | App demo + Tracking | Thêm streamlit và deep-sort-realtime |
 | backend/ai-service/tracking/deepsort_tracker.py | Mới | Tracking | Tracker DeepSORT + fallback IoU |
 | backend/ai-service/tracking/README.md | Mới | Tracking | Tài liệu module tracking |
+| backend/ai-service/fusion/data_models.py | Mới | Fusion | Định nghĩa BoundingBox, LaneInfo, TrafficRule, SceneContext và các model nội bộ |
+| backend/ai-service/fusion/decision_engine.py | Mới | Fusion | Facade `FusionEngine` và bước chuẩn hóa SceneContext |
+| backend/ai-service/fusion/vehicle_lane_fusion.py | Mới | Fusion | Tính center, offset, lane và lane_status cho từng phương tiện |
+| backend/ai-service/fusion/tracking_fusion.py | Mới | Fusion | Ghép detection với track_id bằng IoU |
+| backend/ai-service/fusion/traffic_sign_fusion.py | Mới | Fusion | Diễn giải biển báo thành luật giao thông hiện hành |
+| backend/ai-service/fusion/scene_understanding.py | Mới | Fusion | Tổng hợp dữ liệu thành SceneContext |
+| backend/ai-service/fusion/config.py | Mới | Fusion | Cấu hình threshold cho Fusion |
+| backend/ai-service/fusion/utils.py | Mới | Fusion | Hàm chuẩn hóa bbox, lane geometry, traffic rule và timestamp |
+| backend/ai-service/fusion/__init__.py | Mới | Fusion | Public API cho Fusion layer |
+| backend/ai-service/fusion/README.md | Mới | Fusion | Tài liệu ngắn về đầu vào/đầu ra của Fusion |
+| backend/ai-service/adas/decision_engine.py | Mới | ADAS | Đọc SceneContext và sinh ADASOutput |
+| backend/ai-service/adas/lane_departure.py | Mới | ADAS | Rule cảnh báo lệch/cắt làn |
+| backend/ai-service/adas/traffic_rule.py | Mới | ADAS | Router cho STOP, NO_ENTRY và Speed Limit |
+| backend/ai-service/adas/speed_limit.py | Mới | ADAS | Rule Speed Limit/Overspeed |
+| backend/ai-service/adas/stop_warning.py | Mới | ADAS | Rule STOP warning |
+| backend/ai-service/adas/no_entry_warning.py | Mới | ADAS | Rule No Entry warning |
+| backend/ai-service/adas/warning_manager.py | Mới | ADAS | Loại trùng và sắp xếp ưu tiên cảnh báo |
+| backend/ai-service/adas/data_models.py | Mới | ADAS | Định nghĩa Warning và ADASOutput |
+| backend/ai-service/adas/config.py | Mới | ADAS | Cấu hình threshold cảnh báo |
+| backend/ai-service/adas/dashboard_output.py | Mới | ADAS | Chuẩn bị payload dashboard từ SceneContext và ADASOutput |
+| backend/ai-service/adas/utils.py | Mới | ADAS | Helper chuyển đổi dữ liệu |
+| backend/ai-service/adas/__init__.py | Mới | ADAS | Public API cho ADAS layer |
 | docs/project-state.md | Sửa | Documentation | Cập nhật trạng thái tracking |
 | docs/changelog.md | Sửa | Documentation | Ghi nhận tích hợp preprocessing và demo |
 | README.md | Sửa | Documentation | Ghi lệnh chạy và mô tả chức năng |
@@ -70,6 +105,7 @@ Các hạng mục đã thực hiện nằm ở các tầng khác nhau của pipe
 | Traffic sign training | mAP50, mAP50-95 | Có file traffic_sign_runs/results.csv | Chưa có benchmark trước/sau với preprocessing |
 | App demo | FPS hiển thị trong code | Có logic tính FPS tại runtime, nhưng chưa có số liệu lưu trữ | FPS thay đổi theo machine và input |
 | DeepSORT | Số track, ID stability | Đã có logic và docs, chưa có số liệu thực nghiệm video dài | Cần validate trên video thực tế |
+| Fusion + ADAS | SceneContext, ADASOutput | Đã test bằng dữ liệu mẫu: sinh `SceneContext` và cảnh báo `Overspeed` đúng logic | Chưa có benchmark bằng video thực tế/gắn nhãn |
 
 ## 6. Vấn đề còn tồn đọng / chưa hoàn thành
 
@@ -77,11 +113,13 @@ Các hạng mục đã thực hiện nằm ở các tầng khác nhau của pipe
 - Chưa có số liệu FPS/latency thực tế được ghi nhận từ video chạy trên môi trường cụ thể, mặc dù code đã in và tính toán FPS ở runtime.
 - Traffic sign far-range optimization có logic tích hợp, nhưng cần kiểm chứng trên tập ảnh biển báo xa với ground truth để biết mức cải thiện thực sự.
 - DeepSORT hiện có fallback IoU và support cho appearance matching, nhưng độ ổn định ID trên video thực tế vẫn cần kiểm thử thêm trong tình huống nhiều đối tượng chồng lấp, che khuất hoặc chuyển động nhanh.
+- Fusion đã tạo được `SceneContext`, nhưng lane geometry hiện vẫn phụ thuộc mạnh vào chất lượng lane detection/lane segmentation đầu vào. Với các tình huống nhiều làn, đường cong, che khuất vạch kẻ hoặc mask rời rạc, cần thêm dữ liệu thực tế để kiểm chứng `lane`, `lane_status` và `offset`.
+- ADAS Decision Engine đã có các rule lõi, nhưng current speed hiện chưa được lấy từ cảm biến/GPS/ước lượng tracking trong app demo. Vì vậy rule overspeed chỉ có thể kiểm thử đầy đủ khi truyền `current_speed` từ nguồn dữ liệu phù hợp.
 - Một số tài liệu prompt cũ và file plan cũ có thể không còn ở trạng thái đúng như quá trình code hiện tại; vì vậy, báo cáo này dựa trên code và tài liệu hiện có trong repo, không dựa trên suy đoán từ tên file.
 
 ## 7. Đề xuất bước tiếp theo
 
-Dựa trên timeline hệ thống, các bước tiếp theo nên ưu tiên theo thứ tự sau. Trước tiên, nên xây dựng một bộ benchmark thực tế cho preprocessing, dùng tập ảnh/video có gắn nhãn để đo mAP, confidence, false positive và FPS trước/sau cho từng module. Tiếp theo, nên tích hợp kết quả tracking vào fusion để tạo luồng cảnh báo cho xe và người đi bộ. Sau đó, có thể mở rộng sang cảnh báo lệch làn đường và cảnh báo biển báo theo logic ADAS. Cuối cùng, nên chuẩn bị một dashboard đơn giản để hiển thị quá trình phát hiện, tracking và cảnh báo cho người dùng. Trong chuỗi phát triển này, tracking là tầng nối giữa detection và fusion, nên nếu muốn tiến tới cảnh báo thực tế thì module này cần được kiểm thử trên video dài hơn và chuẩn hóa output tốt hơn.
+Dựa trên timeline hệ thống, các bước tiếp theo nên ưu tiên theo thứ tự sau. Trước tiên, nên xây dựng một bộ benchmark thực tế cho preprocessing và Fusion, dùng tập ảnh/video có gắn nhãn để đo mAP, confidence, false positive, FPS, độ ổn định track_id, độ đúng của lane_status và độ đúng của traffic_rule. Tiếp theo, nên chạy pipeline đầy đủ trên video dài để kiểm tra chuỗi `Detection → Tracking → Fusion → ADAS`, đặc biệt trong tình huống nhiều xe, người đi bộ, đường cong, biển báo nhỏ và vật thể che khuất. Sau đó, nên bổ sung nguồn `current_speed` cho ADAS để rule Speed Limit/Overspeed hoạt động với dữ liệu thực tế thay vì chỉ kiểm thử bằng giá trị mẫu. Cuối cùng, nên mở rộng dashboard để hiển thị `SceneContext`, danh sách cảnh báo, lịch sử track và log theo frame nhằm phục vụ debug, evaluation và báo cáo.
 
 ## 8. Phụ lục — Ghi chú kỹ thuật bổ sung
 

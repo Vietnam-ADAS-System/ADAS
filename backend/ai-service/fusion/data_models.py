@@ -102,6 +102,9 @@ class VehicleLaneState:
     lane: str
     lane_status: str
     offset: Optional[float]
+    lane_left: Optional[float] = None
+    lane_right: Optional[float] = None
+    lane_center: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,9 @@ class VehicleScene:
     lane_status: str
     offset: Optional[float]
     center: Point
+    lane_left: Optional[float] = None
+    lane_right: Optional[float] = None
+    lane_center: Optional[float] = None
     speed: Optional[float] = None
     tracking: bool = False
 
@@ -130,6 +136,9 @@ class VehicleScene:
             "lane_status": self.lane_status,
             "offset": None if self.offset is None else round(self.offset, 2),
             "center": [round(self.center[0], 2), round(self.center[1], 2)],
+            "lane_left": None if self.lane_left is None else round(self.lane_left, 2),
+            "lane_right": None if self.lane_right is None else round(self.lane_right, 2),
+            "lane_center": None if self.lane_center is None else round(self.lane_center, 2),
             "speed": self.speed,
             "tracking": self.tracking,
         }
@@ -167,4 +176,3 @@ class SceneContext:
         if self.pedestrians:
             data["pedestrians"] = [item.to_dict() for item in self.pedestrians]
         return data
-

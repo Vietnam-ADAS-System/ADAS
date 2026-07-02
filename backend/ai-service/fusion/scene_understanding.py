@@ -42,6 +42,9 @@ class SceneUnderstandingEngine:
                     lane_status=state.lane_status,
                     offset=state.offset,
                     center=state.center,
+                    lane_left=state.lane_left,
+                    lane_right=state.lane_right,
+                    lane_center=state.lane_center,
                     speed=None,
                     tracking=bool(association and association.tracking),
                 )
@@ -59,4 +62,3 @@ class SceneUnderstandingEngine:
             timestamp=timestamp,
             pedestrians=pedestrian_scenes,
         )
-
