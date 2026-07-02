@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,10 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+from preprocessing.image_processor import ImageProcessor
 
 TARGET_LABELS = ("person", "car", "motorcycle")
 LABEL_VI = {
@@ -45,7 +50,7 @@ class VehicleDetectorConfig:
     device: Optional[str] = None
     augment: bool = False
     end2end: Optional[bool] = False
-    use_preprocessing: bool = False
+    use_preprocessing: bool = True
     target_labels: Tuple[str, ...] = TARGET_LABELS
 
 
@@ -95,7 +100,7 @@ class VehicleObjectDetector:
                 device=device,
                 augment=_bool_env("VEHICLE_DETECTION_AUGMENT", False),
                 end2end=_optional_bool_env("VEHICLE_DETECTION_END2END", False),
-                use_preprocessing=_bool_env("VEHICLE_DETECTION_PREPROCESS", False),
+                use_preprocessing=_bool_env("VEHICLE_DETECTION_PREPROCESS", True),
                 target_labels=target_labels or TARGET_LABELS,
             )
         )
@@ -221,8 +226,6 @@ class VehicleObjectDetector:
     def _prepare_frame(self, frame: np.ndarray) -> np.ndarray:
         if not self.config.use_preprocessing:
             return frame
-
-        from preprocessing.image_processor import ImageProcessor
 
         processor = ImageProcessor(target_size=(frame.shape[1], frame.shape[0]))
         return processor.preprocess_for_vehicle_detection(frame)

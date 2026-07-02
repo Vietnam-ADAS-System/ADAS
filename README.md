@@ -114,6 +114,18 @@ pip install -r requirements.txt
 python main.py
 ```
 
+#### Root Demo Runner (Streamlit)
+Chạy demo trực quan ở root project bằng giao diện web:
+```bash
+streamlit run main.py
+```
+
+Trong giao diện:
+- Chọn chế độ `Ảnh`, `Video` hoặc `Webcam` ở sidebar.
+- Chọn module cần chạy: Pedestrian, Vehicle, Lane Detection, Lane Segmentation, Traffic Sign.
+- Bật/tắt preprocessing bằng toggle ở sidebar.
+- Ảnh/video kết quả sẽ hiện trực tiếp trên trang và có nút tải về.
+
 #### Object Detection - xe hoi, xe may, nguoi di bo
 ```bash
 cd backend/ai-service
