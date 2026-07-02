@@ -3,9 +3,18 @@ Pedestrian Detection Module using YOLOv11
 Nhận diện người đi bộ (person) trong frame
 """
 
-import numpy as np
-from typing import List
 import logging
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+from preprocessing.image_processor import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +25,26 @@ class PedestrianDetector:
     Hỗ trợ CPU/GPU
     """
 
-    def __init__(self, model_name: str = "yolo11n", conf_threshold: float = 0.5):
+    def __init__(
+        self,
+        model_name: str = "yolo11n",
+        conf_threshold: float = 0.5,
+        enable_preprocessing: bool = True,
+        preprocessing_config: Optional[Dict[str, Any]] = None,
+    ):
         """
         Khởi tạo detector
 
         Args:
             model_name: Tên model YOLOv11 (yolo11n, yolo11s, yolo11m, yolo11l, yolo11x)
             conf_threshold: Ngưỡng confidence
+            enable_preprocessing: Bật/tắt preprocessing trước inference
+            preprocessing_config: Cấu hình preprocessing theo module
         """
         self.model_name = model_name
         self.conf_threshold = conf_threshold
+        self.enable_preprocessing = enable_preprocessing
+        self.preprocessing_config = preprocessing_config or {}
         self.model = None
         # Chỉ quan tâm class "person" trong bộ class chuẩn COCO
         self.class_names = {
@@ -61,7 +80,8 @@ class PedestrianDetector:
             return self._mock_detect(frame)
 
         try:
-            results = self.model(frame, conf=self.conf_threshold, verbose=False)
+            input_frame = self._prepare_frame(frame)
+            results = self.model(input_frame, conf=self.conf_threshold, verbose=False)
 
             detections = []
             for result in results:
@@ -90,6 +110,17 @@ class PedestrianDetector:
         except Exception as e:
             logger.error(f"Detection error: {e}")
             return []
+
+    def _prepare_frame(self, frame: np.ndarray) -> np.ndarray:
+        if not self.enable_preprocessing or frame is None or frame.size == 0:
+            return frame
+
+        processor = ImageProcessor(target_size=(frame.shape[1], frame.shape[0]))
+        return processor.apply_module_preprocessing(
+            frame,
+            module_name="pedestrian",
+            config=self.preprocessing_config,
+        )
 
     def _mock_detect(self, frame: np.ndarray) -> List[dict]:
         """

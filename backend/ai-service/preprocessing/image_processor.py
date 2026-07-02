@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from preprocessing.color_space.converter import rgb_to_gray, rgb_to_hsv
 from preprocessing.enhancement.equalizer import histogram_equalization, clahe
@@ -34,6 +34,42 @@ class ImageProcessor:
         if enhance:
             frame = self.enhance_contrast(frame)
         return frame
+
+    def apply_module_preprocessing(
+        self,
+        frame: np.ndarray,
+        module_name: str,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> np.ndarray:
+        """
+        Apply module-specific preprocessing and return an image array.
+
+        The shared detector wrappers expect ndarray input, so lane-specific
+        preprocessing is reduced to an image output even though the lower-level
+        lane helper can also return multiple derived representations.
+        """
+        if frame is None or frame.size == 0:
+            return frame
+
+        config = config or {}
+        if not config.get("enable_preprocessing", True):
+            return frame
+
+        module_key = (module_name or "").strip().lower()
+        if module_key in {"vehicle", "pedestrian"}:
+            return self.preprocess_for_vehicle_detection(frame)
+        if module_key in {"lane_detection", "lane_segmentation", "lane"}:
+            lane_output = self.preprocess_for_lane_detection(frame)
+            output_key = config.get("output_key", "bgr")
+            if isinstance(lane_output, dict):
+                return lane_output.get(output_key, lane_output.get("bgr", frame))
+            return lane_output
+        if module_key in {"traffic_sign", "traffic_sign_detection", "sign"}:
+            return self.preprocess_for_traffic_sign(frame)
+        if module_key in {"tracking"}:
+            return self.preprocess_for_tracking(frame)
+
+        return self.process_frame(frame, enhance=config.get("enhance", True))
 
     def preprocess_for_vehicle_detection(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -74,12 +110,18 @@ class ImageProcessor:
             "gaussian": gaussian_img,
         }
 
-    def preprocess_for_traffic_sign(self, frame: np.ndarray) -> np.ndarray:
+    def preprocess_for_traffic_sign(
+        self,
+        frame: np.ndarray,
+        target_size: Optional[Tuple[int, int]] = None,
+        apply_resize: bool = True,
+    ) -> np.ndarray:
         """
         BGR → CLAHE mạnh hơn (clip_limit=3.0) → BGR
         Dùng cho: YOLOv11 traffic sign — cần contrast cao để phân biệt màu biển báo
         """
-        frame = self.resize(frame)
+        if apply_resize:
+            frame = self.resize(frame, size=target_size)
         return clahe(frame, clip_limit=3.0)
 
     def preprocess_for_tracking(self, frame: np.ndarray) -> np.ndarray:

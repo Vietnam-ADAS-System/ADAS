@@ -2,16 +2,32 @@
 YOLOv11 Lane Segmentation Inference Script
 """
 
-from ultralytics import YOLO
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional
+
 import cv2
 import numpy as np
-from pathlib import Path
+from ultralytics import YOLO
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+from preprocessing.image_processor import ImageProcessor
 
 
 class LaneSegmenter:
     """YOLOv11 Lane Segmentation model wrapper."""
 
-    def __init__(self, weights_path: str, conf: float = 0.15, iou: float = 0.5):
+    def __init__(
+        self,
+        weights_path: str,
+        conf: float = 0.15,
+        iou: float = 0.5,
+        enable_preprocessing: bool = True,
+        preprocessing_config: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialize lane segmenter.
 
@@ -19,10 +35,14 @@ class LaneSegmenter:
             weights_path: Path đến trained weights (.pt)
             conf: Confidence threshold (giảm xuống 0.15 để detect nhiều hơn)
             iou: IOU threshold for NMS
+            enable_preprocessing: Bật/tắt preprocessing
+            preprocessing_config: Cấu hình preprocessing theo module
         """
         self.model = YOLO(weights_path)
         self.conf = conf
         self.iou = iou
+        self.enable_preprocessing = enable_preprocessing
+        self.preprocessing_config = preprocessing_config or {}
         self.class_names = {0: "lane_line", 1: "road"}
 
     def predict(self, image, imgsz: int = 640, return_mask: bool = True):
@@ -40,6 +60,8 @@ class LaneSegmenter:
         if isinstance(image, (str, Path)):
             image = cv2.imread(str(image))
 
+        image = self._prepare_image(image)
+
         results = self.model.predict(
             image,
             conf=self.conf,
@@ -48,6 +70,17 @@ class LaneSegmenter:
             verbose=False,
         )
         return results
+
+    def _prepare_image(self, image):
+        if image is None or image.size == 0 or not self.enable_preprocessing:
+            return image
+
+        processor = ImageProcessor(target_size=(image.shape[1], image.shape[0]))
+        return processor.apply_module_preprocessing(
+            image,
+            module_name="lane_segmentation",
+            config=self.preprocessing_config,
+        )
 
     def get_lane_mask(self, image, imgsz: int = 640, class_id: int = 0) -> np.ndarray:
         """Trả về mask nhị phân của class chỉ định (mặc định class 0 = lane_line)."""
