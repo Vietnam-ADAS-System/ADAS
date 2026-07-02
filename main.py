@@ -26,8 +26,8 @@ MODULE_PATHS = {
 }
 
 MODEL_PATHS = {
-    "pedestrian": "yolo11n.pt",
-    "vehicle": "yolo26x.pt",
+    "pedestrian": AI_SERVICE_ROOT / "ai_models" / "pedestrian_detection" / "pedestrian_runs" / "pedestrian" / "walking_v1" / "weights" / "best.pt",
+    "vehicle": AI_SERVICE_ROOT / "ai_models" / "vehicle_detection" / "weights" / "best.pt",
     "lane_detection": AI_SERVICE_ROOT / "ai_models" / "lane_detection" / "weights" / "best.pt",
     "lane_segmentation": AI_SERVICE_ROOT / "ai_models" / "lane_segmentation" / "weights" / "best.pt",
     "traffic_sign": AI_SERVICE_ROOT / "ai_models" / "traffic_sign_detection" / "traffic_sign_runs_new" / "traffic_sign_52classes" / "weights" / "best.pt",
@@ -115,9 +115,15 @@ def load_models(enable_preprocessing: bool) -> Dict[str, Any]:
     lane_segmentation_module = _load_module("adas_lane_segmentation", MODULE_PATHS["lane_segmentation"])
 
     models = {
-        "pedestrian": pedestrian_module.PedestrianDetector(enable_preprocessing=enable_preprocessing),
+        "pedestrian": pedestrian_module.PedestrianDetector(
+            model_name=str(MODEL_PATHS["pedestrian"]),
+            enable_preprocessing=enable_preprocessing
+        ),
         "vehicle": vehicle_module.VehicleObjectDetector(
-            vehicle_module.VehicleDetectorConfig(use_preprocessing=enable_preprocessing)
+            vehicle_module.VehicleDetectorConfig(
+                model_path=str(MODEL_PATHS["vehicle"]),
+                use_preprocessing=enable_preprocessing
+            )
         ),
         "lane_detection": lane_detection_module.LaneDetector(
             str(MODEL_PATHS["lane_detection"]),
@@ -307,7 +313,7 @@ def render_image_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     output, counts, elapsed = process_image(image, models, config.modules)
     output = _annotate_frame_with_counts(output, counts, elapsed, config.modules)
 
-    st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả", use_column_width=True)
+    st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
 
@@ -352,7 +358,7 @@ def render_webcam_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     output, counts, elapsed = process_image(image, models, config.modules)
     output = _annotate_frame_with_counts(output, counts, elapsed, config.modules)
 
-    st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả webcam", use_column_width=True)
+    st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả webcam", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
 
