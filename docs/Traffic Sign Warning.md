@@ -935,6 +935,97 @@ priority
 
 ---
 
+## Feature 5.1 - Color & Priority System
+
+### Objective
+
+Hệ thống màu sắc giúp người dùng nhanh chóng nhận biết mức độ cảnh báo.
+
+### Priority Levels
+
+| Mức độ | Màu | Ký hiệu | Mô tả | Biểu tượng |
+|--------|-----|---------|-------|-----------|
+| **CRITICAL** | 🔴 Đỏ | 🔴 | Nguy hiểm cực cao - cần chú ý ngay lập tức | ⚠️🔴 |
+| **HIGH** | 🔴 Đỏ | 🔴 | Nguy hiểm cao - yêu cầu hành động ngay | ⚠️🔴 |
+| **MEDIUM** | 🟡 Vàng | 🟡 | Cảnh báo trung bình - cần lưu ý | ⚠️🟡 |
+| **LOW** | 🔵 Xanh dương | 🔵 | Cảnh báo thấp - thông tin tham khảo | ⚠️🔵 |
+
+### Các trường hợp màu sắc
+
+#### 🔴 **HIGH / CRITICAL (Màu đỏ)**
+
+**Nguy hiểm cao - cần chú ý ngay lập tức**
+
+Các biển báo thuộc nhóm này:
+
+| Biển báo | Tên | Priority |
+|----------|------|----------|
+| ❌ | Cấm đỗ xe (Cam do xe) | 90 |
+| 🛑 | Dừng lại (Dung) | 95 |
+| 🚷 | Cấm rẽ trái (Cam re trai) | 90 |
+| 🚫 | Cấm vào (Cam vào) | 90 |
+| 👥 | Vùng đi bộ (Nguoi di bo) | 85 |
+
+**Hành động khi nhận cảnh báo RED:**
+- Người lái phải chú ý ngay
+- Có thể cần dừng xe hoặc thay đổi hướng đi
+- Ưu tiên cao nhất trong danh sách cảnh báo
+
+---
+
+#### 🟡 **MEDIUM (Màu vàng)**
+
+**Cảnh báo trung bình - cần lưu ý**
+
+Các biển báo thuộc nhóm này:
+
+| Biển báo | Tên | Priority |
+|----------|------|----------|
+| 📍 | Giới hạn tốc độ (Gioi han toc do 50kmh) | 60 |
+| 🏫 | Khu vực học tập (Khu vuc hoc) | 65 |
+| 🔄 | Vòng xuyển (Roundabout) | 55 |
+| 🚌 | Trạm xe buýt (Bus stop) | 50 |
+| 🚨 | Giao nhau vội đường không ưu tiên (Giao nhau voi duong) | 60 |
+
+**Hành động khi nhận cảnh báo YELLOW:**
+- Người lái cần chuẩn bị (giảm tốc độ, chuyển làn)
+- Lưu ý điều kiện giao thông xung quanh
+- Mức độ ưu tiên thứ hai
+
+---
+
+#### 🔵 **LOW (Màu xanh dương)**
+
+**Cảnh báo thấp - thông tin tham khảo**
+
+Các biển báo thuộc nhóm này:
+
+| Biển báo | Tên | Priority |
+|----------|------|----------|
+| ℹ️ | Các biển báo khác không thuộc nhóm trên | 50 |
+| 🚫 | Biển cảnh báo thông tin | 40 |
+
+**Hành động khi nhận cảnh báo BLUE:**
+- Người lái có thể tham khảo thông tin
+- Không cần hành động cấp bách
+- Mức độ ưu tiên thấp nhất
+
+---
+
+#### **Ví dụ hiển thị trên Dashboard**
+
+```
+🟡 #1 [MEDIUM] Speed limit 50 km/h        ← Giới hạn tốc độ (vàng)
+🔴 #2 [HIGH] Cam do xe                   ← Cấm đỗ xe (đỏ - ưu tiên cao)
+🔴 #3 [HIGH] Cam re trai                 ← Cấm rẽ trái (đỏ - ưu tiên cao)
+🔴 #4 [HIGH] Cam do xe                   ← Cấm đỗ xe (đỏ - ưu tiên cao)
+🟡 #5 [MEDIUM] Giao nhau voi duong       ← Giao nhau (vàng)
+```
+
+**Sắp xếp:** Từ gần tới xa theo diện tích bbox (không phải theo mức độ ưu tiên)
+
+---
+
 ## Feature 6 - Warning Expiration
 
 Warning không tồn tại mãi.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import io
+import re
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -60,6 +61,14 @@ _drop_stale_adas_modules()
 
 from adas.lane_departure import draw_lane_departure_overlay
 from fusion import FusionEngine
+try:
+    from adas.traffic_sign import (
+        SignInputService,
+        WarningDecisionService,
+        WarningManager,
+    )
+except ImportError:
+    pass  # Traffic Sign Warning Module not available
 
 
 MODULE_PATHS = {
@@ -113,6 +122,7 @@ class FrameAnalysis:
     elapsed_seconds: float
     scene_context: Dict[str, Any]
     adas_output: Dict[str, Any]
+    traffic_sign_warnings: List[Dict[str, Any]] = None
 
 
 class TrafficSignVision:
@@ -373,6 +383,53 @@ def _annotate_frame_with_warnings(frame: np.ndarray, adas_output: Dict[str, Any]
     return annotated
 
 
+def _draw_traffic_sign_warnings(frame: np.ndarray, warnings: List[Dict[str, Any]]) -> np.ndarray:
+    """Vẽ cảnh báo biển báo dưới ảnh"""
+    if not warnings:
+        return frame
+    
+    annotated = frame.copy()
+    h, w = annotated.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.65
+    thickness = 2
+    line_height = 30
+    margin = 8
+    text_color = (255, 255, 255)
+    max_text_width = max(120, int(w * 0.56))
+    
+    def _fit_label(label: str) -> str:
+        while len(label) > 12 and cv2.getTextSize(label, font, font_scale, thickness)[0][0] > max_text_width:
+            label = label[:-4].rstrip() + "..."
+        return label
+    
+    # Place warnings in the top-right to avoid ADAS/lane text below.
+    y = 24
+    max_items = min(5, max(1, (h - margin * 2) // line_height))
+    
+    for warning in warnings[:max_items]:  # Tối đa 5 warnings
+        level = warning.get("level", "MEDIUM")
+        msg = warning.get("message", warning.get("type", "Warning"))
+        
+        label = _fit_label(f"[{level}] {msg}")
+        text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
+        x = max(margin, w - text_size[0] - margin)
+        
+        # Text
+        cv2.putText(
+            annotated,
+            label,
+            (x, y),
+            font,
+            font_scale,
+            text_color,
+            thickness,
+        )
+        y += line_height
+    
+    return annotated
+
+
 def _evaluate_adas(models: Dict[str, Any], scene_context: Any, frame_size: Tuple[int, int]) -> Any:
     adas_engine = models["adas"]
     try:
@@ -391,6 +448,83 @@ def _evaluate_adas(models: Dict[str, Any], scene_context: Any, frame_size: Tuple
         return adas_engine.evaluate(scene_context)
 
 
+def _generate_traffic_sign_warnings(traffic_sign_detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sinh cảnh báo từ traffic sign detections, sắp xếp từ gần tới xa"""
+    warnings = []
+    
+    try:
+        # Map detection sang rule cho TV4
+        for detection in traffic_sign_detections:
+            class_name = detection.get("class", "")
+            
+            # Tính khoảng cách dựa trên diện tích bbox (bbox lớn = gần hơn)
+            x1 = detection.get("x", 0)
+            y1 = detection.get("y", 0)
+            x2 = detection.get("x2", x1 + 10)
+            y2 = detection.get("y2", y1 + 10)
+            bbox_area = (x2 - x1) * (y2 - y1)
+            
+            # Tạo warning rule dựa trên class name
+            if "Cam" in class_name or "No entry" in class_name or "Prohibited" in class_name:
+                warnings.append({
+                    "type": "NO_ENTRY",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 90,
+                    "distance": bbox_area,
+                })
+            elif "Dung" in class_name or "Stop" in class_name:
+                warnings.append({
+                    "type": "STOP",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 95,
+                    "distance": bbox_area,
+                })
+            elif "Gioi han toc do" in class_name or "Speed limit" in class_name:
+                # Extract speed value
+                speed_match = re.search(r'\d+', class_name)
+                speed = speed_match.group() if speed_match else "???"
+                warnings.append({
+                    "type": "SPEED_LIMIT",
+                    "message": f"Speed limit {speed} km/h",
+                    "level": "MEDIUM",
+                    "priority": 60,
+                    "distance": bbox_area,
+                })
+            elif "Khu vuc hoc" in class_name or "School" in class_name:
+                warnings.append({
+                    "type": "SCHOOL_ZONE",
+                    "message": class_name,
+                    "level": "MEDIUM",
+                    "priority": 65,
+                    "distance": bbox_area,
+                })
+            elif "Nguoi di bo" in class_name or "Pedestrian" in class_name:
+                warnings.append({
+                    "type": "PEDESTRIAN_CROSSING",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 85,
+                    "distance": bbox_area,
+                })
+            else:
+                # Generic warning
+                warnings.append({
+                    "type": "TRAFFIC_SIGN",
+                    "message": class_name,
+                    "level": "MEDIUM",
+                    "priority": 50,
+                    "distance": bbox_area,
+                })
+    except Exception as e:
+        print(f"Error generating traffic sign warnings: {e}")
+    
+    # Sort by distance - gần nhất trước (bbox lớn nhất), xa nhất sau (bbox nhỏ nhất)
+    warnings.sort(key=lambda w: w.get("distance", 0), reverse=True)
+    return warnings[:5]  # Top 5 warnings
+
+
 def draw_results(
     frame: np.ndarray,
     models: Dict[str, Any],
@@ -405,6 +539,7 @@ def draw_results(
     lane_detections: List[Dict[str, Any]] = []
     lane_mask: Optional[np.ndarray] = None
     traffic_sign_detections: List[Dict[str, Any]] = []
+    traffic_sign_warnings: List[Dict[str, Any]] = []
 
     started = cv2.getTickCount()
     selected_modules = list(modules)
@@ -433,6 +568,10 @@ def draw_results(
         elif module_name == "traffic_sign":
             output, traffic_sign_detections = models["traffic_sign"].detect_with_detections(frame, draw_on=output)
             counts["traffic_sign"] = getattr(models["traffic_sign"], "last_count", 0)
+            # Generate warnings từ traffic sign detections
+            traffic_sign_warnings = _generate_traffic_sign_warnings(traffic_sign_detections)
+            # Vẽ warnings lên ảnh
+            output = _draw_traffic_sign_warnings(output, traffic_sign_warnings)
 
     tracks = []
     if vehicle_result is not None or pedestrian_detections:
@@ -463,13 +602,15 @@ def draw_results(
     output = _annotate_frame_with_warnings(output, adas_output_dict)
 
     elapsed = (cv2.getTickCount() - started) / cv2.getTickFrequency()
-    return FrameAnalysis(
+    frame_analysis = FrameAnalysis(
         image=output,
         counts=counts,
         elapsed_seconds=elapsed,
         scene_context=scene_context_dict,
         adas_output=adas_output_dict,
     )
+    frame_analysis.traffic_sign_warnings = traffic_sign_warnings
+    return frame_analysis
 
 
 
@@ -595,6 +736,22 @@ def render_image_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
+    
+    # Hiển thị Traffic Sign Warnings
+    if hasattr(analysis, 'traffic_sign_warnings') and analysis.traffic_sign_warnings:
+        st.subheader("⚠️ Cảnh báo biển báo")
+        for i, warning in enumerate(analysis.traffic_sign_warnings, 1):
+            level = warning.get("level", "MEDIUM")
+            msg = warning.get("message", "")
+            
+            # Chọn màu hiển thị
+            if level in ["CRITICAL", "HIGH"]:
+                st.error(f"🔴 **#{i}** [{level}] {msg}")
+            elif level == "MEDIUM":
+                st.warning(f"🟡 **#{i}** [{level}] {msg}")
+            else:
+                st.info(f"🔵 **#{i}** [{level}] {msg}")
+    
     with st.expander("Scene Context / ADAS Output", expanded=False):
         st.json(analysis.scene_context)
         st.json(analysis.adas_output)
@@ -651,6 +808,22 @@ def render_webcam_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả webcam", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
+    
+    # Hiển thị Traffic Sign Warnings
+    if hasattr(analysis, 'traffic_sign_warnings') and analysis.traffic_sign_warnings:
+        st.subheader("⚠️ Cảnh báo biển báo")
+        for i, warning in enumerate(analysis.traffic_sign_warnings, 1):
+            level = warning.get("level", "MEDIUM")
+            msg = warning.get("message", "")
+            
+            # Chọn màu hiển thị
+            if level in ["CRITICAL", "HIGH"]:
+                st.error(f"🔴 **#{i}** [{level}] {msg}")
+            elif level == "MEDIUM":
+                st.warning(f"🟡 **#{i}** [{level}] {msg}")
+            else:
+                st.info(f"🔵 **#{i}** [{level}] {msg}")
+    
     with st.expander("Scene Context / ADAS Output", expanded=False):
         st.json(analysis.scene_context)
         st.json(analysis.adas_output)
