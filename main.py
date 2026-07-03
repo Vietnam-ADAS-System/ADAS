@@ -390,50 +390,42 @@ def _draw_traffic_sign_warnings(frame: np.ndarray, warnings: List[Dict[str, Any]
     
     annotated = frame.copy()
     h, w = annotated.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.65
+    thickness = 2
+    line_height = 30
+    margin = 8
+    text_color = (255, 255, 255)
+    max_text_width = max(120, int(w * 0.56))
     
-    # Vẽ warnings ở phía dưới bên trái
-    y_start = h - 30 - (len(warnings) * 28)
-    y = max(y_start, 100)
+    def _fit_label(label: str) -> str:
+        while len(label) > 12 and cv2.getTextSize(label, font, font_scale, thickness)[0][0] > max_text_width:
+            label = label[:-4].rstrip() + "..."
+        return label
     
-    for warning in warnings[:5]:  # Tối đa 5 warnings
+    # Place warnings in the top-right to avoid ADAS/lane text below.
+    y = 24
+    max_items = min(5, max(1, (h - margin * 2) // line_height))
+    
+    for warning in warnings[:max_items]:  # Tối đa 5 warnings
         level = warning.get("level", "MEDIUM")
         msg = warning.get("message", warning.get("type", "Warning"))
         
-        # Chọn màu dựa trên level
-        if level in ["CRITICAL", "HIGH"]:
-            color = (0, 0, 255)  # Red
-        elif level == "MEDIUM":
-            color = (0, 165, 255)  # Orange
-        else:
-            color = (0, 255, 255)  # Yellow
-        
-        # Vẽ background
-        label = f"⚠ {msg}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 1
+        label = _fit_label(f"[{level}] {msg}")
         text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
-        
-        # Background box
-        cv2.rectangle(
-            annotated,
-            (5, y - text_size[1] - 5),
-            (15 + text_size[0], y + 5),
-            color,
-            -1
-        )
+        x = max(margin, w - text_size[0] - margin)
         
         # Text
         cv2.putText(
             annotated,
             label,
-            (10, y),
+            (x, y),
             font,
             font_scale,
-            (255, 255, 255),
+            text_color,
             thickness,
         )
-        y += 28
+        y += line_height
     
     return annotated
 
