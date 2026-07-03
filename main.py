@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import io
+import re
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -19,8 +21,54 @@ AI_SERVICE_ROOT = REPO_ROOT / "backend" / "ai-service"
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from adas import ADASDecisionEngine
+APP_CACHE_VERSION = "adas-fusion-lane-departure-v4"
+
+def _has_signature_parameter(callable_obj: Any, parameter_name: str) -> bool:
+    try:
+        return parameter_name in inspect.signature(callable_obj).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _drop_adas_modules() -> None:
+    for module_name in list(sys.modules):
+        if module_name == "adas" or module_name.startswith("adas."):
+            sys.modules.pop(module_name, None)
+
+
+def _drop_stale_adas_modules() -> None:
+    importlib.invalidate_caches()
+
+    lane_departure_module = sys.modules.get("adas.lane_departure")
+    if lane_departure_module is not None and not hasattr(lane_departure_module, "__path__"):
+        _drop_adas_modules()
+        return
+
+    data_models_module = sys.modules.get("adas.data_models")
+    output_class = getattr(data_models_module, "ADASOutput", None)
+    if output_class is not None and not _has_signature_parameter(output_class, "lane_departure"):
+        _drop_adas_modules()
+        return
+
+    decision_engine_module = sys.modules.get("adas.decision_engine")
+    engine_class = getattr(decision_engine_module, "ADASDecisionEngine", None)
+    evaluate_method = getattr(engine_class, "evaluate", None)
+    if evaluate_method is not None and not _has_signature_parameter(evaluate_method, "frame_size"):
+        _drop_adas_modules()
+
+
+_drop_stale_adas_modules()
+
+from adas.lane_departure import draw_lane_departure_overlay
 from fusion import FusionEngine
+try:
+    from adas.traffic_sign import (
+        SignInputService,
+        WarningDecisionService,
+        WarningManager,
+    )
+except ImportError:
+    pass  # Traffic Sign Warning Module not available
 
 
 MODULE_PATHS = {
@@ -74,6 +122,7 @@ class FrameAnalysis:
     elapsed_seconds: float
     scene_context: Dict[str, Any]
     adas_output: Dict[str, Any]
+    traffic_sign_warnings: List[Dict[str, Any]] = None
 
 
 class TrafficSignVision:
@@ -169,9 +218,16 @@ def _load_module(module_name: str, file_path: Path):
     return module
 
 
+def _create_adas_engine() -> Any:
+    importlib.invalidate_caches()
+    decision_module = importlib.import_module("adas.decision_engine")
+    return decision_module.ADASDecisionEngine()
+
+
 @st.cache_resource
 
-def load_models(enable_preprocessing: bool) -> Dict[str, Any]:
+def load_models(enable_preprocessing: bool, cache_version: str = APP_CACHE_VERSION) -> Dict[str, Any]:
+    _ = cache_version
     pedestrian_module = _load_module("adas_pedestrian_detection", MODULE_PATHS["pedestrian"])
     vehicle_module = _load_module("adas_vehicle_detection", MODULE_PATHS["vehicle"])
     lane_detection_module = _load_module("adas_lane_detection", MODULE_PATHS["lane_detection"])
@@ -203,7 +259,7 @@ def load_models(enable_preprocessing: bool) -> Dict[str, Any]:
         ),
         "tracker": tracking_module.ObjectTracker(),
         "fusion": FusionEngine(),
-        "adas": ADASDecisionEngine(),
+        "adas": _create_adas_engine(),
     }
     return models
 
@@ -327,6 +383,156 @@ def _annotate_frame_with_warnings(frame: np.ndarray, adas_output: Dict[str, Any]
     return annotated
 
 
+def _draw_traffic_sign_warnings(frame: np.ndarray, warnings: List[Dict[str, Any]]) -> np.ndarray:
+    """Vẽ cảnh báo biển báo dưới ảnh"""
+    if not warnings:
+        return frame
+    
+    annotated = frame.copy()
+    h, w = annotated.shape[:2]
+    
+    # Vẽ warnings ở phía dưới bên trái
+    y_start = h - 30 - (len(warnings) * 28)
+    y = max(y_start, 100)
+    
+    for warning in warnings[:5]:  # Tối đa 5 warnings
+        level = warning.get("level", "MEDIUM")
+        msg = warning.get("message", warning.get("type", "Warning"))
+        
+        # Chọn màu dựa trên level
+        if level in ["CRITICAL", "HIGH"]:
+            color = (0, 0, 255)  # Red
+        elif level == "MEDIUM":
+            color = (0, 165, 255)  # Orange
+        else:
+            color = (0, 255, 255)  # Yellow
+        
+        # Vẽ background
+        label = f"⚠ {msg}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 1
+        text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
+        
+        # Background box
+        cv2.rectangle(
+            annotated,
+            (5, y - text_size[1] - 5),
+            (15 + text_size[0], y + 5),
+            color,
+            -1
+        )
+        
+        # Text
+        cv2.putText(
+            annotated,
+            label,
+            (10, y),
+            font,
+            font_scale,
+            (255, 255, 255),
+            thickness,
+        )
+        y += 28
+    
+    return annotated
+
+
+def _evaluate_adas(models: Dict[str, Any], scene_context: Any, frame_size: Tuple[int, int]) -> Any:
+    adas_engine = models["adas"]
+    try:
+        return adas_engine.evaluate(scene_context, frame_size=frame_size)
+    except TypeError as exc:
+        if "frame_size" not in str(exc):
+            raise
+
+    adas_engine = _create_adas_engine()
+    models["adas"] = adas_engine
+    try:
+        return adas_engine.evaluate(scene_context, frame_size=frame_size)
+    except TypeError as exc:
+        if "frame_size" not in str(exc):
+            raise
+        return adas_engine.evaluate(scene_context)
+
+
+def _generate_traffic_sign_warnings(traffic_sign_detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sinh cảnh báo từ traffic sign detections, sắp xếp từ gần tới xa"""
+    warnings = []
+    
+    try:
+        # Map detection sang rule cho TV4
+        for detection in traffic_sign_detections:
+            class_name = detection.get("class", "")
+            
+            # Tính khoảng cách dựa trên diện tích bbox (bbox lớn = gần hơn)
+            x1 = detection.get("x", 0)
+            y1 = detection.get("y", 0)
+            x2 = detection.get("x2", x1 + 10)
+            y2 = detection.get("y2", y1 + 10)
+            bbox_area = (x2 - x1) * (y2 - y1)
+            
+            # Tạo warning rule dựa trên class name
+            if "Cam" in class_name or "No entry" in class_name or "Prohibited" in class_name:
+                warnings.append({
+                    "type": "NO_ENTRY",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 90,
+                    "distance": bbox_area,
+                })
+            elif "Dung" in class_name or "Stop" in class_name:
+                warnings.append({
+                    "type": "STOP",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 95,
+                    "distance": bbox_area,
+                })
+            elif "Gioi han toc do" in class_name or "Speed limit" in class_name:
+                # Extract speed value
+                speed_match = re.search(r'\d+', class_name)
+                speed = speed_match.group() if speed_match else "???"
+                warnings.append({
+                    "type": "SPEED_LIMIT",
+                    "message": f"Speed limit {speed} km/h",
+                    "level": "MEDIUM",
+                    "priority": 60,
+                    "distance": bbox_area,
+                })
+            elif "Khu vuc hoc" in class_name or "School" in class_name:
+                warnings.append({
+                    "type": "SCHOOL_ZONE",
+                    "message": class_name,
+                    "level": "MEDIUM",
+                    "priority": 65,
+                    "distance": bbox_area,
+                })
+            elif "Nguoi di bo" in class_name or "Pedestrian" in class_name:
+                warnings.append({
+                    "type": "PEDESTRIAN_CROSSING",
+                    "message": class_name,
+                    "level": "HIGH",
+                    "priority": 85,
+                    "distance": bbox_area,
+                })
+            else:
+                # Generic warning
+                warnings.append({
+                    "type": "TRAFFIC_SIGN",
+                    "message": class_name,
+                    "level": "MEDIUM",
+                    "priority": 50,
+                    "distance": bbox_area,
+                })
+    except Exception as e:
+        print(f"Error generating traffic sign warnings: {e}")
+    
+    # Sort by distance - gần nhất trước (bbox lớn nhất), xa nhất sau (bbox nhỏ nhất)
+    warnings.sort(key=lambda w: w.get("distance", 0), reverse=True)
+    return warnings[:5]  # Top 5 warnings
+
+
 def draw_results(
     frame: np.ndarray,
     models: Dict[str, Any],
@@ -341,6 +547,7 @@ def draw_results(
     lane_detections: List[Dict[str, Any]] = []
     lane_mask: Optional[np.ndarray] = None
     traffic_sign_detections: List[Dict[str, Any]] = []
+    traffic_sign_warnings: List[Dict[str, Any]] = []
 
     started = cv2.getTickCount()
     selected_modules = list(modules)
@@ -369,6 +576,10 @@ def draw_results(
         elif module_name == "traffic_sign":
             output, traffic_sign_detections = models["traffic_sign"].detect_with_detections(frame, draw_on=output)
             counts["traffic_sign"] = getattr(models["traffic_sign"], "last_count", 0)
+            # Generate warnings từ traffic sign detections
+            traffic_sign_warnings = _generate_traffic_sign_warnings(traffic_sign_detections)
+            # Vẽ warnings lên ảnh
+            output = _draw_traffic_sign_warnings(output, traffic_sign_warnings)
 
     tracks = []
     if vehicle_result is not None or pedestrian_detections:
@@ -392,19 +603,22 @@ def draw_results(
         pedestrian_detections=pedestrian_detections,
         fps=fps,
     )
-    adas_output = models["adas"].evaluate(scene_context)
+    adas_output = _evaluate_adas(models, scene_context, frame_size=(frame.shape[1], frame.shape[0]))
     scene_context_dict = scene_context.to_dict()
     adas_output_dict = adas_output.to_dict()
+    output = draw_lane_departure_overlay(output, adas_output_dict.get("lane_departure", []))
     output = _annotate_frame_with_warnings(output, adas_output_dict)
 
     elapsed = (cv2.getTickCount() - started) / cv2.getTickFrequency()
-    return FrameAnalysis(
+    frame_analysis = FrameAnalysis(
         image=output,
         counts=counts,
         elapsed_seconds=elapsed,
         scene_context=scene_context_dict,
         adas_output=adas_output_dict,
     )
+    frame_analysis.traffic_sign_warnings = traffic_sign_warnings
+    return frame_analysis
 
 
 
@@ -530,6 +744,22 @@ def render_image_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
+    
+    # Hiển thị Traffic Sign Warnings
+    if hasattr(analysis, 'traffic_sign_warnings') and analysis.traffic_sign_warnings:
+        st.subheader("⚠️ Cảnh báo biển báo")
+        for i, warning in enumerate(analysis.traffic_sign_warnings, 1):
+            level = warning.get("level", "MEDIUM")
+            msg = warning.get("message", "")
+            
+            # Chọn màu hiển thị
+            if level in ["CRITICAL", "HIGH"]:
+                st.error(f"🔴 **#{i}** [{level}] {msg}")
+            elif level == "MEDIUM":
+                st.warning(f"🟡 **#{i}** [{level}] {msg}")
+            else:
+                st.info(f"🔵 **#{i}** [{level}] {msg}")
+    
     with st.expander("Scene Context / ADAS Output", expanded=False):
         st.json(analysis.scene_context)
         st.json(analysis.adas_output)
@@ -586,6 +816,22 @@ def render_webcam_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), caption="Kết quả webcam", use_container_width=True)
     st.write(f"Thời gian xử lý: {elapsed:.2f}s")
     st.write({k: v for k, v in counts.items() if v > 0})
+    
+    # Hiển thị Traffic Sign Warnings
+    if hasattr(analysis, 'traffic_sign_warnings') and analysis.traffic_sign_warnings:
+        st.subheader("⚠️ Cảnh báo biển báo")
+        for i, warning in enumerate(analysis.traffic_sign_warnings, 1):
+            level = warning.get("level", "MEDIUM")
+            msg = warning.get("message", "")
+            
+            # Chọn màu hiển thị
+            if level in ["CRITICAL", "HIGH"]:
+                st.error(f"🔴 **#{i}** [{level}] {msg}")
+            elif level == "MEDIUM":
+                st.warning(f"🟡 **#{i}** [{level}] {msg}")
+            else:
+                st.info(f"🔵 **#{i}** [{level}] {msg}")
+    
     with st.expander("Scene Context / ADAS Output", expanded=False):
         st.json(analysis.scene_context)
         st.json(analysis.adas_output)
@@ -606,7 +852,7 @@ def main() -> None:
     st.caption("Streamlit demo cho ảnh, video và webcam với preprocessing tích hợp")
 
     config = render_sidebar()
-    models = load_models(config.enable_preprocessing)
+    models = load_models(config.enable_preprocessing, APP_CACHE_VERSION)
 
     if config.mode == "Ảnh":
         render_image_mode(config, models)

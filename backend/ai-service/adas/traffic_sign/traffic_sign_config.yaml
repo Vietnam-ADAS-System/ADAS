@@ -1,0 +1,103 @@
+# Traffic Sign Warning Module Configuration
+# Cấu hình cho toàn bộ luồng xử lý cảnh báo biển báo giao thông
+
+# ============================================================================
+# TV1 - TRAFFIC SIGN RECOGNITION INPUT
+# ============================================================================
+tv1:
+  # Ngưỡng độ tin cậy tối thiểu để chấp nhận detection
+  confidence_threshold: 0.5
+  
+  # Giới hạn class ID
+  min_class_id: 0
+  max_class_id: 51
+  
+  # Timeout cho detection processing (ms)
+  processing_timeout: 1000
+
+# ============================================================================
+# TV3 - SPEED LIMIT STATE MANAGEMENT
+# ============================================================================
+tv3:
+  # Giới hạn tốc độ mặc định nếu không có biển báo
+  default_speed_limit: 40
+  
+  # Thời gian tồn tại của speed limit (giây)
+  # Sau khi vượt quá thời gian này, speed limit sẽ hết hạn
+  speed_limit_duration: 30
+  
+  # Cập nhật dashboard mỗi frame
+  dashboard_update_interval: 1
+
+# ============================================================================
+# TV4 - TRAFFIC WARNING DECISION ENGINE
+# ============================================================================
+tv4:
+  # Priority rules cho từng loại cảnh báo
+  warning_priority_rules:
+    NO_ENTRY:
+      level: "HIGH"
+      priority: 90
+      duration: 5
+    
+    STOP:
+      level: "HIGH"
+      priority: 95
+      duration: 3
+    
+    GIVE_WAY:
+      level: "HIGH"
+      priority: 85
+      duration: 4
+    
+    SPEED_LIMIT:
+      level: "MEDIUM"
+      priority: 60
+      duration: 10
+    
+    PEDESTRIAN_CROSSING:
+      level: "HIGH"
+      priority: 85
+      duration: 5
+    
+    SCHOOL_ZONE:
+      level: "MEDIUM"
+      priority: 65
+      duration: 8
+    
+    BUS_STOP:
+      level: "LOW"
+      priority: 40
+      duration: 5
+    
+    ROUNDABOUT:
+      level: "MEDIUM"
+      priority: 70
+      duration: 6
+  
+  # Thời gian hết hạn cảnh báo (giây)
+  warning_timeout: 30
+
+# ============================================================================
+# TV5 - WARNING MANAGER
+# ============================================================================
+tv5:
+  # Kích thước tối đa của warning queue
+  warning_queue_size: 10
+  
+  # Thời gian để detect duplicate warning (giây)
+  duplicate_filter_time: 2
+  
+  # Số lượng lịch sử cảnh báo lưu trữ tối đa
+  history_max_records: 100
+  
+  # Kích thước buffer cho voice alert queue
+  voice_alert_queue_size: 5
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+logging:
+  level: "INFO"
+  format: "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"
+  file: "logs/traffic_sign_warning.log"

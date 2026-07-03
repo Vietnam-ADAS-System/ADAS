@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional, Tuple
 
 from .config import ADASConfig
 from .data_models import ADASOutput
@@ -20,17 +20,23 @@ class ADASDecisionEngine:
         self.traffic_rule = TrafficRuleDecision(self.config)
         self.warning_manager = WarningManager()
 
-    def evaluate(self, scene_context: Any, current_speed: Optional[float] = None) -> ADASOutput:
+    def evaluate(
+        self,
+        scene_context: Any,
+        current_speed: Optional[float] = None,
+        frame_size: Optional[Tuple[int, int]] = None,
+    ) -> ADASOutput:
         context = scene_context.to_dict() if hasattr(scene_context, "to_dict") else dict(scene_context or {})
         warnings = []
+        lane_batch = self.lane_departure.evaluate_scene(context, frame_size=frame_size)
+        lane_departure = lane_batch.to_dict_list()
 
-        for vehicle in context.get("vehicles", []):
-            warnings.extend(self.lane_departure.evaluate_vehicle(vehicle))
+        warnings.extend(self.lane_departure.warnings_from_batch(lane_batch))
 
         warnings.extend(self.traffic_rule.evaluate(context.get("traffic_rule", {}), current_speed))
 
         return ADASOutput(
             frame=int(context.get("frame", 0)),
             warnings=self.warning_manager.organize(warnings),
+            lane_departure=lane_departure,
         )
-

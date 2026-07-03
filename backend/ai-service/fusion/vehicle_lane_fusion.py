@@ -37,6 +37,9 @@ class VehicleLaneFusion:
                     lane=lane,
                     lane_status=lane_status,
                     offset=offset,
+                    lane_left=lane_left,
+                    lane_right=lane_right,
+                    lane_center=lane_center,
                 )
             )
 
@@ -90,4 +93,3 @@ class VehicleLaneFusion:
             return "near_boundary"
 
         return "inside_lane"
-
