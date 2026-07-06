@@ -106,3 +106,8 @@ checkpoints/
 !outputs/
 !outputs/**/
 !outputs/**/.gitkeep
+
+# Cho phép manifest frontend để cài đặt và chạy React/Vite
+!package.json
+!frontend/package.json
+!frontend/package-lock.json

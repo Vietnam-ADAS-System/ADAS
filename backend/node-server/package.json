@@ -1,0 +1,14 @@
+{
+  "name": "adas-node-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Realtime WebSocket backend for the ADAS dashboard.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

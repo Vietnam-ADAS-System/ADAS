@@ -1,25 +1,40 @@
 # Node.js Backend Server
 
-Express.js server that handles API requests from frontend and communicates with Python AI Service.
+Realtime WebSocket backend for the React ADAS dashboard.
 
-## Routes
+This server exposes the streams expected by `frontend/src/services/realtime.js`:
 
-- `POST /upload-video` - Upload video file
-- `POST /detect` - Vehicle detection
-- `POST /segment` - Lane segmentation  
-- `POST /warning` - ADAS warning system
+```text
+/ws/video
+/ws/lane
+/ws/traffic-sign
+/ws/warning
+```
 
-## Structure
+It also exposes:
 
-- `routes/` - API endpoint definitions
-- `controllers/` - Request handlers
-- `services/` - Business logic and calls to Python AI Service
-- `middleware/` - Authentication, file upload handling, etc.
-- `uploads/` - User uploaded videos
+```text
+GET /api/health
+GET /api/realtime/snapshot
+```
 
-## Installation
+## Run
+
+From the project root:
 
 ```bash
-npm install
+npm run dev
+```
+
+Or run only this backend:
+
+```bash
+cd backend/node-server
 npm start
 ```
+
+The implementation uses only built-in Node.js modules, so no backend npm install is required.
+
+## Notes
+
+This server completes the realtime dashboard integration contract. It streams synchronized camera, lane, traffic sign and warning payloads to the frontend. The heavier Python model inference code remains in `backend/ai-service/` and the Streamlit demo at project root.

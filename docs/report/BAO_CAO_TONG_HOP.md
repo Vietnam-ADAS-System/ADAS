@@ -1,7 +1,7 @@
 # Báo cáo tổng hợp — Hệ thống ADAS
 
 **Ngày cập nhật:** 2026-07-03  
-**Người/agent thực hiện:** AI coding agent thực hiện theo yêu cầu  
+**Người/agent thực hiện:** Phạm Huy Đức Việt (AI coding agent hỗ trợ)  
 **Phạm vi báo cáo:** Tổng hợp 5 hạng mục: Preprocessing Integration, App demo main.py, Tối ưu Traffic Sign xa, Tracking DeepSORT, Fusion Layer và ADAS Decision Engine
 
 ## 1. Tóm tắt điều hành (Executive Summary)

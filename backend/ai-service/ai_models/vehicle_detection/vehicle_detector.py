@@ -277,6 +277,9 @@ def _load_project_env() -> None:
 
 
 def _add_torch_dll_paths() -> None:
+    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+        return
+
     try:
         import site
     except ImportError:

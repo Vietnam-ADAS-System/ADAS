@@ -1,0 +1,82 @@
+.traffic-sign-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.traffic-sign-marker {
+  position: absolute;
+  inset: 0;
+}
+
+.traffic-sign-icon,
+.traffic-sign-rule,
+.traffic-sign-warning {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid rgba(214, 225, 236, 0.24);
+  border-radius: 8px;
+  background: rgba(8, 12, 18, 0.78);
+  color: #f6f9fc;
+  backdrop-filter: blur(8px);
+}
+
+.traffic-sign-icon {
+  display: inline-grid;
+  place-items: center;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 8px;
+  border-width: 2px;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.traffic-sign-icon--LOW {
+  border-color: #4fb8ff;
+}
+
+.traffic-sign-icon--MEDIUM {
+  border-color: #f5c84c;
+}
+
+.traffic-sign-icon--HIGH {
+  border-color: #ff9f43;
+}
+
+.traffic-sign-icon--CRITICAL {
+  border-color: #ff4f5f;
+}
+
+.traffic-sign-rule {
+  display: grid;
+  gap: 3px;
+  max-width: 230px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.traffic-sign-rule span {
+  color: #a9b7c6;
+}
+
+.traffic-sign-rule strong {
+  color: #ffffff;
+}
+
+.traffic-sign-warning {
+  padding: 7px 10px;
+  border-color: rgba(255, 159, 67, 0.7);
+  background: rgba(88, 48, 16, 0.84);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.traffic-sign-warning--CRITICAL {
+  border-color: rgba(255, 79, 95, 0.72);
+  background: rgba(107, 21, 34, 0.84);
+}
+
+.traffic-sign-confidence {
+  font-variant-numeric: tabular-nums;
+}

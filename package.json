@@ -1,0 +1,14 @@
+{
+  "name": "adas",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bash scripts/start-stack.sh",
+    "start": "bash scripts/start-stack.sh",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend/node-server run dev",
+    "dev:ai": "python3 -m streamlit run main.py --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview"
+  }
+}

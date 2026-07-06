@@ -224,8 +224,44 @@ def _create_adas_engine() -> Any:
     return decision_module.ADASDecisionEngine()
 
 
-@st.cache_resource
+def _model_weight_issue(path: Path) -> Optional[str]:
+    if not path.exists():
+        return f"Không tìm thấy file model: {path}"
 
+    try:
+        with path.open("rb") as file:
+            header = file.read(128)
+    except OSError as error:
+        return f"Không đọc được file model {path}: {error}"
+
+    if header.startswith(b"version https://git-lfs.github.com/spec"):
+        return (
+            "File model đang là Git LFS pointer, chưa phải weight thật. "
+            f"Cần tải file thật cho: {path}"
+        )
+
+    return None
+
+
+def _safe_load_model(
+    models: Dict[str, Any],
+    errors: Dict[str, str],
+    name: str,
+    weights_path: Path,
+    factory: Any,
+) -> None:
+    issue = _model_weight_issue(weights_path)
+    if issue:
+        errors[name] = issue
+        return
+
+    try:
+        models[name] = factory()
+    except Exception as error:
+        errors[name] = f"{type(error).__name__}: {error}"
+
+
+@st.cache_resource
 def load_models(enable_preprocessing: bool, cache_version: str = APP_CACHE_VERSION) -> Dict[str, Any]:
     _ = cache_version
     pedestrian_module = _load_module("adas_pedestrian_detection", MODULE_PATHS["pedestrian"])
@@ -234,33 +270,66 @@ def load_models(enable_preprocessing: bool, cache_version: str = APP_CACHE_VERSI
     lane_segmentation_module = _load_module("adas_lane_segmentation", MODULE_PATHS["lane_segmentation"])
     tracking_module = _load_module("adas_tracking", MODULE_PATHS["tracking"])
 
-    models = {
-        "pedestrian": pedestrian_module.PedestrianDetector(
-            model_name=str(MODEL_PATHS["pedestrian"]),
-            enable_preprocessing=enable_preprocessing
-        ),
-        "vehicle": vehicle_module.VehicleObjectDetector(
-            vehicle_module.VehicleDetectorConfig(
-                model_path=str(MODEL_PATHS["vehicle"]),
-                use_preprocessing=enable_preprocessing
-            )
-        ),
-        "lane_detection": lane_detection_module.LaneDetector(
-            str(MODEL_PATHS["lane_detection"]),
-            enable_preprocessing=enable_preprocessing,
-        ),
-        "lane_segmentation": lane_segmentation_module.LaneSegmenter(
-            str(MODEL_PATHS["lane_segmentation"]),
-            enable_preprocessing=enable_preprocessing,
-        ),
-        "traffic_sign": TrafficSignVision(
-            MODEL_PATHS["traffic_sign"],
-            enable_preprocessing=enable_preprocessing,
-        ),
+    errors: Dict[str, str] = {}
+    models: Dict[str, Any] = {
         "tracker": tracking_module.ObjectTracker(),
         "fusion": FusionEngine(),
         "adas": _create_adas_engine(),
     }
+
+    _safe_load_model(
+        models,
+        errors,
+        "pedestrian",
+        MODEL_PATHS["pedestrian"],
+        lambda: pedestrian_module.PedestrianDetector(
+            model_name=str(MODEL_PATHS["pedestrian"]),
+            enable_preprocessing=enable_preprocessing,
+        ),
+    )
+    _safe_load_model(
+        models,
+        errors,
+        "vehicle",
+        MODEL_PATHS["vehicle"],
+        lambda: vehicle_module.VehicleObjectDetector(
+            vehicle_module.VehicleDetectorConfig(
+                model_path=str(MODEL_PATHS["vehicle"]),
+                use_preprocessing=enable_preprocessing,
+            )
+        ),
+    )
+    _safe_load_model(
+        models,
+        errors,
+        "lane_detection",
+        MODEL_PATHS["lane_detection"],
+        lambda: lane_detection_module.LaneDetector(
+            str(MODEL_PATHS["lane_detection"]),
+            enable_preprocessing=enable_preprocessing,
+        ),
+    )
+    _safe_load_model(
+        models,
+        errors,
+        "lane_segmentation",
+        MODEL_PATHS["lane_segmentation"],
+        lambda: lane_segmentation_module.LaneSegmenter(
+            str(MODEL_PATHS["lane_segmentation"]),
+            enable_preprocessing=enable_preprocessing,
+        ),
+    )
+    _safe_load_model(
+        models,
+        errors,
+        "traffic_sign",
+        MODEL_PATHS["traffic_sign"],
+        lambda: TrafficSignVision(
+            MODEL_PATHS["traffic_sign"],
+            enable_preprocessing=enable_preprocessing,
+        ),
+    )
+    models["_model_errors"] = errors
     return models
 
 
@@ -547,6 +616,9 @@ def draw_results(
         selected_modules = ["pedestrian", "vehicle", "lane_detection", "lane_segmentation", "traffic_sign"]
 
     for module_name in selected_modules:
+        if module_name not in models:
+            continue
+
         if module_name == "pedestrian":
             pedestrian_detections = models["pedestrian"].detect(frame)
             counts["pedestrian"] = len(pedestrian_detections)
@@ -714,6 +786,27 @@ def render_sidebar() -> StreamlitConfig:
     return StreamlitConfig(mode=mode, modules=module_selection, enable_preprocessing=enable_preprocessing)
 
 
+def render_model_status(config: StreamlitConfig, models: Dict[str, Any]) -> None:
+    errors = models.get("_model_errors", {})
+    unavailable = [module for module in config.modules if module in errors]
+
+    if unavailable:
+        lines = [
+            f"- {MODULE_LABELS.get(module, module)}: {errors[module]}"
+            for module in unavailable
+        ]
+        st.warning(
+            "Một số module AI chưa khả dụng vì file weight chưa phải model thật. "
+            "Dashboard vẫn chạy; các module này sẽ được bỏ qua khi xử lý."
+        )
+        st.code("\n".join(lines), language="text")
+        st.caption("Nếu dùng Git LFS, chạy `git lfs install` rồi `git lfs pull`, hoặc đặt file `.pt` thật vào đúng đường dẫn.")
+
+    available = [module for module in config.modules if module in models]
+    if not available:
+        st.info("Chưa có module model nào khả dụng. App vẫn mở được, nhưng ảnh/video sẽ không có kết quả AI cho tới khi có weight thật.")
+
+
 
 def render_image_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
     uploaded = st.file_uploader("Tải ảnh", type=["jpg", "jpeg", "png", "bmp", "webp"])
@@ -845,6 +938,7 @@ def main() -> None:
 
     config = render_sidebar()
     models = load_models(config.enable_preprocessing, APP_CACHE_VERSION)
+    render_model_status(config, models)
 
     if config.mode == "Ảnh":
         render_image_mode(config, models)

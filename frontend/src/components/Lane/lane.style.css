@@ -1,0 +1,70 @@
+.lane-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.lane-offset-indicator,
+.lane-status,
+.lane-departure-alert {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+}
+
+.lane-offset-indicator {
+  left: 14px;
+  bottom: 14px;
+  padding: 8px 10px;
+}
+
+.lane-offset-indicator span {
+  color: var(--muted);
+}
+
+.lane-offset-indicator strong {
+  color: var(--text);
+}
+
+.lane-status {
+  right: 14px;
+  bottom: 14px;
+  padding: 8px 10px;
+  font-weight: 700;
+}
+
+.lane-status__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.lane-status--NEAR_BOUNDARY .lane-status__dot {
+  background: var(--yellow);
+}
+
+.lane-status--LANE_DEPARTURE .lane-status__dot {
+  background: var(--red);
+}
+
+.lane-departure-alert {
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 14px;
+  border-color: var(--red);
+  background: var(--red-bg);
+  color: var(--text);
+  font-weight: 800;
+}

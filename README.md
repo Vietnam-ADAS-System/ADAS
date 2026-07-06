@@ -93,6 +93,17 @@ Link dữ liệu/model của team:
 
 ### Installation
 
+#### Full Stack Dashboard + Backend + AI Demo
+Chạy một lệnh ở thư mục gốc project:
+```bash
+npm run dev
+```
+
+Lệnh này mở đủ:
+- React realtime dashboard: `http://localhost:3000/`
+- Node realtime backend/WebSocket: `http://127.0.0.1:3000/api/health`
+- Streamlit AI/model demo: `http://localhost:8501/`
+
 #### Frontend
 ```bash
 cd frontend
