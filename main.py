@@ -57,6 +57,29 @@ def _drop_stale_adas_modules() -> None:
         _drop_adas_modules()
 
 
+def _resize_for_preview(
+    frame: np.ndarray,
+    scale: float,
+    max_width: int = 960,
+    max_height: int = 620,
+) -> np.ndarray:
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return frame
+
+    scale = max(0.1, min(scale, 1.0))
+    scale_by_width = max_width / float(width)
+    scale_by_height = max_height / float(height)
+    fit_scale = min(scale, scale_by_width, scale_by_height, 1.0)
+
+    if fit_scale >= 0.999:
+        return frame
+
+    new_width = max(1, int(width * fit_scale))
+    new_height = max(1, int(height * fit_scale))
+    return cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+
 _drop_stale_adas_modules()
 
 from adas.lane_departure import draw_lane_departure_overlay
@@ -113,6 +136,7 @@ class StreamlitConfig:
     mode: str
     modules: Sequence[str]
     enable_preprocessing: bool
+    preview_scale: float = 0.65
 
 
 @dataclass
@@ -132,11 +156,6 @@ class TrafficSignVision:
         self.model = YOLO(str(weights_path))
         self.enable_preprocessing = enable_preprocessing
         self.last_count = 0
-        self.mapping_fix = {
-            "Cam re phai": "Cam quay dau",
-            "Gioi han toc do 40kmh": "Gioi han toc do 50kmh",
-            "Gioi han toc do 60kmh": "Gioi han toc do 50kmh",
-        }
 
     def detect(self, frame: np.ndarray) -> np.ndarray:
         module = _load_module("traffic_sign_module", MODULE_PATHS["traffic_sign"])
@@ -157,7 +176,7 @@ class TrafficSignVision:
         self.last_count = 0
         if len(results) > 0 and getattr(results[0], "boxes", None) is not None:
             self.last_count = len(results[0].boxes)
-        return module.process_frame(frame.copy(), results, self.model.names, self.mapping_fix)
+        return module.process_frame(frame.copy(), results, self.model.names, {})
 
     def detect_with_detections(
         self,
@@ -182,7 +201,7 @@ class TrafficSignVision:
         detections = self._parse_detections(results)
         self.last_count = len(detections)
         canvas = draw_on.copy() if draw_on is not None else frame.copy()
-        annotated = module.process_frame(canvas, results, self.model.names, self.mapping_fix)
+        annotated = module.process_frame(canvas, results, self.model.names, {})
         return annotated, detections
 
     def _parse_detections(self, results: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -195,11 +214,10 @@ class TrafficSignVision:
                 x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
                 class_id = int(box.cls[0])
                 model_text = self.model.names[class_id]
-                final_text = self.mapping_fix.get(model_text, model_text)
                 detections.append(
                     {
                         "id": index,
-                        "class": final_text,
+                        "class": model_text,
                         "bbox": [x1, y1, x2, y2],
                         "confidence": float(box.conf[0].item()),
                     }
@@ -642,7 +660,14 @@ def process_image(
 
 
 
-def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str], enable_preview: bool = False) -> Tuple[str, float]:
+def process_video(
+    video_path: str,
+    models: Dict[str, Any],
+    modules: Sequence[str],
+    enable_preview: bool = False,
+    preview_placeholder: Optional[Any] = None,
+    preview_scale: float = 0.65,
+) -> Tuple[str, float]:
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
@@ -684,7 +709,20 @@ def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str
             status.write(f"Processing frame {processed_frames}/{total_frames or '?'}")
 
             if enable_preview:
-                st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption=f"Frame {processed_frames}", channels="RGB")
+                preview_image = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+                preview_image = _resize_for_preview(preview_image, preview_scale)
+                if preview_placeholder is not None:
+                    preview_placeholder.image(
+                        preview_image,
+                        caption=f"Realtime frame {processed_frames}",
+                        use_container_width=False,
+                    )
+                else:
+                    st.image(
+                        preview_image,
+                        caption=f"Realtime frame {processed_frames}",
+                        use_container_width=False,
+                    )
     finally:
         capture.release()
         writer.release()
@@ -700,6 +738,14 @@ def render_sidebar() -> StreamlitConfig:
     st.sidebar.title("ADAS Demo")
     mode = st.sidebar.radio("Chế độ", ["Ảnh", "Video", "Webcam"], index=0)
     enable_preprocessing = st.sidebar.toggle("Bật preprocessing", value=True)
+    preview_scale = st.sidebar.slider(
+        "Kích thước khung preview video",
+        min_value=0.4,
+        max_value=1.0,
+        value=0.65,
+        step=0.05,
+        help="Giảm kích thước hiển thị để nhìn trọn video và giảm tải giao diện, không đổi frame đầu vào cho model.",
+    )
     st.sidebar.caption("Chọn module chạy")
 
     module_selection = []
@@ -711,7 +757,12 @@ def render_sidebar() -> StreamlitConfig:
     if not module_selection:
         module_selection = ["pedestrian", "vehicle", "lane_detection", "lane_segmentation", "traffic_sign"]
 
-    return StreamlitConfig(mode=mode, modules=module_selection, enable_preprocessing=enable_preprocessing)
+    return StreamlitConfig(
+        mode=mode,
+        modules=module_selection,
+        enable_preprocessing=enable_preprocessing,
+        preview_scale=preview_scale,
+    )
 
 
 
@@ -773,8 +824,19 @@ def render_video_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
         return
 
     temp_path = file_bytes_to_temp_path(uploaded.read(), suffix=Path(uploaded.name).suffix)
-    output_path, avg_fps = process_video(temp_path, models, config.modules)
-    st.video(output_path)
+    left_col, center_col, right_col = st.columns([1, 2.2, 1])
+    with center_col:
+        preview_slot = st.empty()
+    output_path, avg_fps = process_video(
+        temp_path,
+        models,
+        config.modules,
+        enable_preview=True,
+        preview_placeholder=preview_slot,
+        preview_scale=config.preview_scale,
+    )
+    with center_col:
+        st.video(output_path)
     st.write(f"FPS trung bình: {avg_fps:.2f}")
 
     with open(output_path, "rb") as video_file:
