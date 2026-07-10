@@ -150,12 +150,19 @@ class FrameAnalysis:
 
 
 class TrafficSignVision:
-    def __init__(self, weights_path: Path, enable_preprocessing: bool = True):
+    def __init__(self, weights_path: Path, enable_preprocessing: bool = True, device: Optional[int] = None):
         from ultralytics import YOLO
+        from gpu_utils import get_inference_device, log_inference_device
 
         self.model = YOLO(str(weights_path))
         self.enable_preprocessing = enable_preprocessing
         self.last_count = 0
+        # Xác định device (GPU hoặc CPU)
+        self.device = device if device is not None else get_inference_device()
+        log_inference_device(self.device)
+        # Di chuyển model sang device
+        if self.device is not None:
+            self.model.to(self.device)
 
     def detect(self, frame: np.ndarray) -> np.ndarray:
         module = _load_module("traffic_sign_module", MODULE_PATHS["traffic_sign"])
@@ -172,6 +179,7 @@ class TrafficSignVision:
             conf=0.15,
             agnostic_nms=True,
             verbose=False,
+            device=self.device,  # ← GPU/CPU inference
         )
         self.last_count = 0
         if len(results) > 0 and getattr(results[0], "boxes", None) is not None:
@@ -197,6 +205,7 @@ class TrafficSignVision:
             conf=0.15,
             agnostic_nms=True,
             verbose=False,
+            device=self.device,  # ← GPU/CPU inference
         )
         detections = self._parse_detections(results)
         self.last_count = len(detections)

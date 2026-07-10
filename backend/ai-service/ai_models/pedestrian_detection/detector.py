@@ -15,6 +15,7 @@ if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from preprocessing.image_processor import ImageProcessor
+from gpu_utils import get_inference_device, log_inference_device
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class PedestrianDetector:
         conf_threshold: float = 0.5,
         enable_preprocessing: bool = True,
         preprocessing_config: Optional[Dict[str, Any]] = None,
+        device: Optional[int] = None,
     ):
         """
         Khởi tạo detector
@@ -40,6 +42,8 @@ class PedestrianDetector:
             conf_threshold: Ngưỡng confidence
             enable_preprocessing: Bật/tắt preprocessing trước inference
             preprocessing_config: Cấu hình preprocessing theo module
+            device: Device cho inference (0=GPU, None=CPU auto-select). 
+                   Nếu None, tự động phát hiện CUDA
         """
         self.model_name = model_name
         self.conf_threshold = conf_threshold
@@ -50,6 +54,9 @@ class PedestrianDetector:
         self.class_names = {
             0: "person",
         }
+        # Xác định device (GPU hoặc CPU)
+        self.device = device if device is not None else get_inference_device()
+        log_inference_device(self.device)
         self._init_model()
 
     def _init_model(self):
@@ -65,7 +72,13 @@ class PedestrianDetector:
             
             logger.info(f"Loading model: {model_path}")
             self.model = YOLO(model_path)
-            logger.info("Model loaded successfully!")
+            
+            # Di chuyển model sang device (GPU hoặc CPU)
+            if self.device is not None:
+                self.model.to(self.device)
+                logger.info(f"✅ Model loaded on GPU device {self.device}")
+            else:
+                logger.info("✅ Model loaded on CPU")
         except ImportError:
             logger.warning("ultralytics not installed. Using mock detector for demo.")
             self.model = None
@@ -88,7 +101,13 @@ class PedestrianDetector:
 
         try:
             input_frame = self._prepare_frame(frame)
-            results = self.model(input_frame, conf=self.conf_threshold, verbose=False)
+            # Inference trên device (GPU hoặc CPU)
+            results = self.model(
+                input_frame,
+                conf=self.conf_threshold,
+                verbose=False,
+                device=self.device,  # ← GPU/CPU inference
+            )
 
             detections = []
             for result in results:
