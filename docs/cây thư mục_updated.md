@@ -1,222 +1,258 @@
-# 📁 ADAS Project Structure (Cấu Trúc Dự Án)
+# ADAS - Cây thư mục cập nhật
 
-```
+Cập nhật theo workspace hiện tại tại `D:\xlyanh2\ADAS`.
+
+Quy ước lọc cây thư mục:
+- Không liệt kê `.git/`, `__pycache__/`, file `.pyc`.
+- Không liệt kê `.gitkeep`, file 0 byte và thư mục chỉ chứa placeholder.
+- Các thư mục artifact có nhiều ảnh/plot/weights được ghi kèm số lượng để tài liệu vẫn đầy đủ nhưng không quá nhiễu.
+
+```text
 ADAS/
-│
-├── 📄 main.py                          # Streamlit Dashboard chính - Giao diện người dùng
-├── 📄 test_gpu_support.py             # Kiểm tra GPU acceleration support
-├── 📄 GPU_ACCELERATION.md             # Hướng dẫn GPU acceleration configuration
-├── 📄 README.md                       # Giới thiệu dự án chính
-├── 📄 .env.example                    # Template environment variables
-│
-├── 🎥 yolo11n.pt                      # YOLO 11 Nano model (lightweight)
-├── 🎥 yolo26x.pt                      # YOLO 26 X-large model (accurate)
-│
-│
-├── 📂 backend/
-│   │
-│   ├── 📂 ai-service/                 # Python AI/ML Service (Core Logic)
-│   │   │
-│   │   ├── 📄 gpu_utils.py            # GPU detection & auto-fallback utilities
-│   │   ├── 📄 requirements.txt        # Python dependencies
-│   │   │
-│   │   ├── 📂 adas/                   # ADAS Decision Engine & Warnings
-│   │   │   ├── 📄 config.py
-│   │   │   ├── 📄 decision_engine.py  # Main decision logic
-│   │   │   ├── 📄 data_models.py
-│   │   │   ├── 📄 dashboard_output.py # Send output to dashboard
-│   │   │   ├── 📄 warning_manager.py  # Organize & prioritize warnings
-│   │   │   ├── 📄 traffic_rule.py     # Traffic rule warnings
-│   │   │   ├── 📄 stop_warning.py
-│   │   │   ├── 📄 no_entry_warning.py
-│   │   │   ├── 📄 speed_limit.py
-│   │   │   ├── 📄 utils.py
-│   │   │   │
-│   │   │   ├── 📂 lane_departure/     # Lane Departure Warning Module
-│   │   │   │   ├── 📄 config.py
-│   │   │   │   ├── 📄 lane_departure_service.py
-│   │   │   │   ├── 📄 lane_validator.py
-│   │   │   │   ├── 📄 lane_visualizer.py
-│   │   │   │   ├── 📄 lane_warning.py
-│   │   │   │   ├── 📄 lane_center.py
-│   │   │   │   ├── 📄 lane_offset.py
-│   │   │   │   ├── 📄 lane_width.py
-│   │   │   │   ├── 📄 lane_status.py
-│   │   │   │   ├── 📄 direction.py
-│   │   │   │   ├── 📄 frame_validator.py
-│   │   │   │   ├── 📄 vehicle_center.py
-│   │   │   │   ├── 📄 vehicle_validator.py
-│   │   │   │   ├── 📄 tracking_validator.py
-│   │   │   │   ├── 📄 offset_model.py
-│   │   │   │   ├── 📄 offset_service.py
-│   │   │   │   ├── 📄 normalize_offset.py
-│   │   │   │   ├── 📄 models.py
-│   │   │   │   ├── 📄 dashboard_sender.py
-│   │   │   │   ├── 📄 warning_engine.py
-│   │   │   │   ├── 📄 validator.py
-│   │   │   │   └── 📄 utils.py
-│   │   │   │
-│   │   │   └── 📂 traffic_sign/       # Traffic Sign Warning Module
-│   │   │       ├── 📄 __init__.py
-│   │   │       └── ... (traffic sign detection logic)
-│   │   │
-│   │   ├── 📂 ai_models/              # Deep Learning Models
-│   │   │   ├── 📂 vehicle_detection/
-│   │   │   │   ├── 📄 vehicle_detector.py    # YOLOv11 vehicle detection
-│   │   │   │   ├── 📄 train_vehicle_detector.py
-│   │   │   │   └── 📄 test_vehicle_detector.py
-│   │   │   │
-│   │   │   ├── 📂 pedestrian_detection/
-│   │   │   │   ├── 📄 detector.py            # YOLOv11 pedestrian detection
-│   │   │   │   ├── 📄 train.py
-│   │   │   │   └── 📄 test_pedestrian_detector.py
-│   │   │   │
-│   │   │   ├── 📂 lane_detection/
-│   │   │   │   ├── 📄 detector.py            # Lane detection model
-│   │   │   │   ├── 📄 lane_det.yaml
-│   │   │   │   └── 📄 train.py
-│   │   │   │
-│   │   │   ├── 📂 lane_segmentation/
-│   │   │   │   ├── 📄 train.py               # DeepLabV3+ lane segmentation
-│   │   │   │   └── 📄 inference.py
-│   │   │   │
-│   │   │   ├── 📂 traffic_sign_detection/
-│   │   │   │   ├── 📄 detector.py            # YOLOv11 traffic sign detection
-│   │   │   │   ├── 📄 train.py
-│   │   │   │   └── 📄 config.yaml
-│   │   │   │
-│   │   │   └── 📂 evaluation/
-│   │   │       └── 📄 metrics.py
-│   │   │
-│   │   ├── 📂 preprocessing/           # Image Preprocessing Pipeline
-│   │   │   ├── 📄 image_processor.py   # Main entry point
-│   │   │   ├── 📂 color_space/
-│   │   │   │   └── 📄 converter.py     # RGB→HSV, RGB→Gray, RGB→LAB
-│   │   │   ├── 📂 enhancement/
-│   │   │   │   └── 📄 equalizer.py    # CLAHE, Histogram Equalization
-│   │   │   ├── 📂 filtering/
-│   │   │   │   └── 📄 filters.py      # Gaussian, Median, Bilateral filters
-│   │   │   └── 📂 utils/
-│   │   │
-│   │   ├── 📂 traditional_cv/         # Traditional Computer Vision
-│   │   │   ├── 📂 edge_detection/
-│   │   │   │   └── 📄 detectors.py    # Sobel, Canny, Laplacian
-│   │   │   └── 📂 lane_detection/
-│   │   │       └── 📄 hough_transform.py  # Hough transform lane detection
-│   │   │
-│   │   ├── 📂 fusion/                 # Sensor Fusion & Scene Understanding
-│   │   │   ├── 📄 __init__.py
-│   │   │   ├── 📄 config.py
-│   │   │   ├── 📄 data_models.py
-│   │   │   ├── 📄 decision_engine.py
-│   │   │   ├── 📄 scene_understanding.py
-│   │   │   ├── 📄 tracking_fusion.py
-│   │   │   ├── 📄 traffic_sign_fusion.py
-│   │   │   ├── 📄 vehicle_lane_fusion.py
-│   │   │   ├── 📄 utils.py
-│   │   │   └── 📄 README.md
-│   │   │
-│   │   ├── 📂 tracking/               # Object Tracking
-│   │   │   ├── 📄 deepsort_tracker.py # DeepSORT tracking algorithm
-│   │   │   └── 📄 README.md
-│   │   │
-│   │   └── 📂 __pycache__/
-│   │
-│   └── 📂 node-server/                # Node.js Express Server (Optional)
-│       ├── 📄 README.md
-│       ├── 📄 server.js
-│       ├── 📂 controllers/            # Handle requests
-│       ├── 📂 routes/                 # API endpoints
-│       ├── 📂 services/               # Business logic
-│       ├── 📂 middleware/             # Auth, file upload
-│       └── 📂 uploads/                # User uploaded videos
-│
-│
-├── 📂 frontend/                       # React Web Dashboard (Optional)
-│   ├── 📄 README.md
-│   ├── 📄 package.json
-│   ├── 📂 public/
-│   │   ├── 📄 index.html
-│   │   └── 📄 favicon.ico
-│   ├── 📂 src/
-│   │   ├── 📂 pages/
-│   │   │   ├── 📄 Dashboard.jsx       # Main dashboard
-│   │   │   ├── 📄 Detection.jsx       # Vehicle/Pedestrian detection
-│   │   │   ├── 📄 LaneDetection.jsx   # Lane departure warning
-│   │   │   └── 📄 TrafficSign.jsx     # Traffic sign detection
-│   │   ├── 📂 components/
-│   │   │   ├── 📄 VideoPlayer.jsx
-│   │   │   ├── 📄 WarningPanel.jsx
-│   │   │   ├── 📄 DetectionTable.jsx
-│   │   │   └── 📄 TrafficSignPanel.jsx
-│   │   ├── 📂 services/
-│   │   │   └── 📄 api.js             # API calls to backend
-│   │   └── 📂 assets/
-│   │
-│   └── 📂 node_modules/
-│
-│
-├── 📂 docs/                           # Documentation
-│   ├── 📄 README.md
-│   ├── 📄 cây thư mục.md             # Project structure
-│   ├── 📄 cây thư mục_updated.md     # Updated structure (this file)
-│   ├── 📄 PROJECT_OVERVIEW.md        # Project overview & summary
-│   ├── 📄 Dashboard Realtime.md
-│   ├── 📄 Phát hiện và cảnh báo xe lệch làn.md
-│   ├── 📄 Traffic Sign Warning.md
-│   ├── 📄 phương pháp nghiên cứu.md
-│   ├── 📄 project-state.md
-│   ├── 📄 task-template.md
-│   ├── 📂 diagrams/                  # Architecture diagrams
-│   ├── 📂 proposal/                  # Project proposals
-│   ├── 📂 references/                # Research papers
-│   ├── 📂 report/
-│   │   └── 📄 BAO_CAO_TONG_HOP.md    # Comprehensive report
-│   └── 📂 slides/
-│
-│
-├── 📂 notebooks/                      # Jupyter Notebooks
-│   ├── 📄 README.md
-│   └── ... (experimental notebooks)
-│
-│
-├── 📂 outputs/                        # Generated outputs
-│   ├── 📂 predictions/               # Detection results
-│   ├── 📂 reports/                   # Analysis reports
-│   ├── 📂 screenshots/               # UI screenshots
-│   └── 📂 videos/                    # Processed videos
-│
-│
-├── 📂 File .MD/                       # Additional markdown files
-│   └── 📄 PROMPT_TAO_MAIN_PY.md
-│
-│
-└── 📂 __pycache__/
+|-- .env.example                         # Mẫu biến môi trường
+|-- .gitattributes
+|-- .gitignore
+|-- GPU_ACCELERATION.md                   # Hướng dẫn GPU/CUDA
+|-- README.md                             # README chính
+|-- main.py                               # Streamlit demo ảnh/video/webcam
+|-- test_gpu_support.py                   # Kiểm tra GPU và môi trường inference
+|-- yolo11n.pt                            # YOLO weight nhẹ ở root
+|-- yolo26x.pt                            # YOLO weight lớn ở root
+|
+|-- backend/
+|   |-- ai-service/
+|   |   |-- gpu_utils.py                  # Auto-detect CUDA/CPU fallback
+|   |   |-- requirements.txt              # Dependency Python chính
+|   |   |
+|   |   |-- adas/                         # Rule/decision layer cho ADAS
+|   |   |   |-- __init__.py
+|   |   |   |-- config.py
+|   |   |   |-- dashboard_output.py
+|   |   |   |-- data_models.py
+|   |   |   |-- decision_engine.py
+|   |   |   |-- no_entry_warning.py
+|   |   |   |-- speed_limit.py
+|   |   |   |-- stop_warning.py
+|   |   |   |-- traffic_rule.py
+|   |   |   |-- utils.py
+|   |   |   |-- warning_manager.py
+|   |   |   |
+|   |   |   |-- lane_departure/            # Cảnh báo lệch làn
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- config.py
+|   |   |   |   |-- dashboard_sender.py
+|   |   |   |   |-- direction.py
+|   |   |   |   |-- frame_validator.py
+|   |   |   |   |-- lane_center.py
+|   |   |   |   |-- lane_departure_service.py
+|   |   |   |   |-- lane_offset.py
+|   |   |   |   |-- lane_status.py
+|   |   |   |   |-- lane_validator.py
+|   |   |   |   |-- lane_visualizer.py
+|   |   |   |   |-- lane_warning.py
+|   |   |   |   |-- lane_width.py
+|   |   |   |   |-- models.py
+|   |   |   |   |-- normalize_offset.py
+|   |   |   |   |-- offset_model.py
+|   |   |   |   |-- offset_service.py
+|   |   |   |   |-- tracking_validator.py
+|   |   |   |   |-- utils.py
+|   |   |   |   |-- validator.py
+|   |   |   |   |-- vehicle_center.py
+|   |   |   |   |-- vehicle_validator.py
+|   |   |   |   `-- warning_engine.py
+|   |   |   |
+|   |   |   `-- traffic_sign/              # Chuẩn hóa biển báo và sinh cảnh báo
+|   |   |       |-- __init__.py
+|   |   |       |-- bbox_parser.py
+|   |   |       |-- class_mapper.py
+|   |   |       |-- confidence_filter.py
+|   |   |       |-- config.py
+|   |   |       |-- dashboard_sender.py
+|   |   |       |-- example_pipeline.py
+|   |   |       |-- models.py
+|   |   |       |-- priority_manager.py
+|   |   |       |-- README.md
+|   |   |       |-- sign_input_service.py
+|   |   |       |-- sign_reader.py
+|   |   |       |-- speed_limit_manager.py
+|   |   |       |-- speed_limit_service.py
+|   |   |       |-- speed_rule_parser.py
+|   |   |       |-- test_traffic_sign.py
+|   |   |       |-- traffic_sign_config.yaml
+|   |   |       |-- warning_decision.py
+|   |   |       |-- warning_history.py
+|   |   |       |-- warning_manager.py
+|   |   |       |-- warning_queue.py
+|   |   |       |-- warning_service.py
+|   |   |       `-- warning_timer.py
+|   |   |
+|   |   |-- ai_models/                     # Detector, trainer, weights, artifact
+|   |   |   |-- vehicle_detection/
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- convert_bdd100k_to_yolo.py
+|   |   |   |   |-- README.md
+|   |   |   |   |-- train_vehicle_detector.py
+|   |   |   |   |-- vehicle_detection.yaml
+|   |   |   |   |-- vehicle_detector.py
+|   |   |   |   |-- src/
+|   |   |   |   |   |-- __init__.py
+|   |   |   |   |   `-- detector.py
+|   |   |   |   |-- weights/
+|   |   |   |   |   |-- best.pt
+|   |   |   |   |   `-- last.pt
+|   |   |   |   `-- evaluation/             # 22 file: args/results/plots/batch images
+|   |   |   |
+|   |   |   |-- pedestrian_detection/
+|   |   |   |   |-- detector.py
+|   |   |   |   |-- test_pedestrian_detector.py
+|   |   |   |   |-- train.py
+|   |   |   |   |-- pedestrian_output/
+|   |   |   |   |   `-- nhandiennguoidibo/   # 12 ảnh kết quả phát hiện người đi bộ
+|   |   |   |   `-- pedestrian_runs/
+|   |   |   |       |-- detect/
+|   |   |   |       |   |-- val/              # 8 file evaluation
+|   |   |   |       |   `-- val2/             # 8 file evaluation
+|   |   |   |       `-- pedestrian/
+|   |   |   |           `-- walking_v1/      # 22 file, gồm weights/best.pt và last.pt
+|   |   |   |
+|   |   |   |-- lane_detection/
+|   |   |   |   |-- detector.py
+|   |   |   |   |-- lane_det.yaml
+|   |   |   |   |-- README.md
+|   |   |   |   `-- weights/
+|   |   |   |       `-- best.pt
+|   |   |   |
+|   |   |   |-- lane_segmentation/
+|   |   |   |   |-- convert_via_to_yolo.py
+|   |   |   |   |-- KAGGLE_WORKFLOW.md
+|   |   |   |   |-- lane_yolo.yaml
+|   |   |   |   |-- predict.py
+|   |   |   |   |-- RE_TRAIN_GUIDE.md
+|   |   |   |   |-- README.md
+|   |   |   |   |-- requirements.txt
+|   |   |   |   |-- train.py
+|   |   |   |   `-- weights/
+|   |   |   |       `-- best.pt
+|   |   |   |
+|   |   |   `-- traffic_sign_detection/
+|   |   |       |-- train.py
+|   |   |       |-- predict.py
+|   |   |       |-- data.yaml
+|   |   |       |-- 2583453-c14c6c115268fad9f7013a267f3dbe06.jpg
+|   |   |       |-- 3e58805fce2d6bc584f0cfbcdac8a07f.jpg
+|   |   |       |-- 80.jpg
+|   |   |       |-- bien-bao-1.jpg
+|   |   |       |-- bien-giao-nhau-voi-duong-khong-uu-tien-antbook.vn-4.jpg
+|   |   |       |-- cấm đi ngược chiều .jpg
+|   |   |       |-- cấm quay đầu.jpg
+|   |   |       |-- giao đi bộ và biển 60.jpg
+|   |   |       |-- OIP.jpg
+|   |   |       |-- quay đàu.jpg
+|   |   |       |-- test.jpg
+|   |   |       |-- VP Gửi .jpg
+|   |   |       |-- inference_outputs/
+|   |   |       |   `-- prediction_results/  # 14 ảnh inference đã xuất
+|   |   |       |-- traffic_sign_runs/       # 24 file: weights, args, results, plots, batches
+|   |   |       `-- traffic_sign_runs_new/
+|   |   |           `-- traffic_sign_52classes/ # 23 file: weights, args, plots, batches
+|   |   |
+|   |   |-- preprocessing/                 # Tiền xử lý ảnh dùng chung
+|   |   |   |-- __init__.py
+|   |   |   |-- image_processor.py
+|   |   |   |-- color_space/
+|   |   |   |   `-- converter.py
+|   |   |   |-- enhancement/
+|   |   |   |   `-- equalizer.py
+|   |   |   |-- filtering/
+|   |   |   |   `-- filters.py
+|   |   |   `-- utils/
+|   |   |       `-- visualizer.py
+|   |   |
+|   |   |-- fusion/                        # Hợp nhất detection/lane/sign/tracking
+|   |   |   |-- __init__.py
+|   |   |   |-- config.py
+|   |   |   |-- data_models.py
+|   |   |   |-- decision_engine.py
+|   |   |   |-- README.md
+|   |   |   |-- scene_understanding.py
+|   |   |   |-- tracking_fusion.py
+|   |   |   |-- traffic_sign_fusion.py
+|   |   |   |-- utils.py
+|   |   |   `-- vehicle_lane_fusion.py
+|   |   |
+|   |   `-- tracking/
+|   |       |-- __init__.py
+|   |       |-- deepsort_tracker.py
+|   |       `-- README.md
+|   |
+|   `-- node-server/
+|       `-- README.md                     # Tài liệu scaffold Node/Express; code route/controller chưa có
+|
+|-- docs/
+|   |-- cây thư mục mới.md
+|   |-- cây thư mục.md
+|   |-- cây thư mục_updated.md             # File này
+|   |-- file.md
+|   |-- phan1.md
+|   |-- Phát hiện và cảnh báo xe lệch làn.md
+|   |-- phương pháp nghiên cứu.md
+|   |-- project-state.md
+|   |-- PROJECT_OVERVIEW.md
+|   |-- README.md
+|   |-- task-template.md
+|   |-- Traffic Sign Warning.md
+|   `-- report/
+|       `-- BAO_CAO_TONG_HOP.md
+|
+|-- File .MD/
+|   `-- PROMPT_TAO_MAIN_PY.md
+|
+|-- frontend/
+|   `-- README.md                         # Scaffold React; source hiện chỉ có placeholder
+|
+|-- notebooks/
+|   `-- README.md
+|
+`-- outputs/
+    |-- README.md
+    `-- videos/
+        |-- tmp3w1ne8g8_streamlit_annotated.mp4
+        `-- tmpd2tj4_hl_streamlit_annotated.mp4
 ```
 
----
+## Thống kê hiện tại
 
-## 📊 Summary
+- 281 file có nội dung sau khi bỏ `.git/`, `__pycache__/`, `.gitkeep` và file 0 byte.
+- 47 thư mục có nội dung thật.
+- Tổng dung lượng file được tính trong cây: khoảng 353.7 MB.
+- Theo phần mở rộng:
+  - `.jpg`: 91 file
+  - `.py`: 90 file
+  - `.png`: 40 file
+  - `.md`: 28 file
+  - `.pt`: 12 file
+  - `.yaml`: 10 file
+  - `.csv`: 3 file
+  - `.mp4`: 2 file
+  - `.txt`: 2 file
+  - `.example`, `.gitattributes`, `.gitignore`: mỗi loại 1 file
 
-### **Tổng cộng:**
-- **Python modules**: 60+ files
-- **Models**: 4 deep learning models (YOLO + DeepLab)
-- **Core Features**: 8 major detection/warning systems
-- **Frontend**: React dashboard (optional)
-- **Backend**: Node.js API + Python AI service
-- **GPU Support**: Auto-detection with CPU fallback
+## Các phần đã loại khỏi cây vì rỗng hoặc chỉ là placeholder
 
-### **Key Technologies:**
-- **AI/ML**: YOLOv11, DeepLabV3+, DeepSORT
-- **Image Processing**: OpenCV, scikit-image
-- **Backend**: Python (FastAPI/Streamlit), Node.js/Express
-- **Frontend**: React.js
-- **GPU**: CUDA 12.8 with PyTorch 2.11
-- **Database**: (MongoDB/PostgreSQL for persistence)
+- `backend/ai-service/evaluation/`
+- `backend/ai-service/traditional_cv/edge_detection/`
+- `backend/ai-service/traditional_cv/lane_detection/`
+- `backend/node-server/controllers/`, `middleware/`, `routes/`, `services/`, `uploads/`
+- `docs/diagrams/`, `proposal/`, `references/`, `slides/`
+- `docs/Dashboard Realtime.md` vì file 0 byte
+- `frontend/public/`, `frontend/src/assets/`, `frontend/src/components/`, `frontend/src/services/`
+- `outputs/predictions/`, `outputs/reports/`, `outputs/screenshots/`
+- Các file `__init__.py` 0 byte và toàn bộ `__pycache__/`
 
-### **Latest Updates:**
-✅ GPU acceleration support added (5-8x speedup)  
-✅ Auto CUDA detection with CPU fallback  
-✅ Streamlit dashboard as main UI  
-✅ Modular architecture for easy extension  
-✅ Comprehensive test suite included  
+## Nhận xét trạng thái
+
+- Ứng dụng chạy chính hiện là `main.py` bằng Streamlit.
+- `backend/ai-service/` là phần có code xử lý thực tế: model, preprocessing, fusion, tracking và ADAS warning.
+- `frontend/` và `backend/node-server/` hiện là scaffold/tài liệu, chưa có source triển khai ngoài README và placeholder.
+- `outputs/videos/` đang có video kết quả đã sinh từ app; các thư mục output khác hiện chưa có nội dung thật.

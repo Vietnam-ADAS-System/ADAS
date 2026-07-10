@@ -1,375 +1,398 @@
-# 🚗 ADAS Project Overview - Tổng Quan Dự Án
+# ADAS Project Overview
 
-## 📖 Giới Thiệu Dự Án
+Cập nhật theo trạng thái workspace hiện tại tại `D:\xlyanh2\ADAS`.
 
-**ADAS (Advanced Driver Assistance System)** là hệ thống hỗ trợ lái xe thông minh, phát hiện và cảnh báo các nguy hiểm trên đường:
-- 🚗 **Phát hiện xe cộ** (ô tô, xe máy, xe tải)
-- 👥 **Phát hiện người đi bộ**
-- 🛑 **Phát hiện biển báo giao thông** (Stop, No Entry, Speed Limit, v.v.)
-- 🛣️ **Cảnh báo lệch làn đường** (Lane Departure Warning)
-- ⚡ **GPU-accelerated inference** (5-8x tốc độ)
+## 1. Mục tiêu dự án
 
----
+ADAS là demo hệ thống hỗ trợ lái xe, tập trung vào xử lý ảnh/video từ camera hoặc file video để:
+- Phát hiện xe và người đi bộ.
+- Phát hiện làn đường và phân đoạn làn đường.
+- Phát hiện biển báo giao thông.
+- Theo dõi đối tượng qua nhiều frame.
+- Hợp nhất kết quả detector thành `SceneContext`.
+- Sinh cảnh báo ADAS như lệch làn, biển báo, tốc độ, cấm vào và luật giao thông.
+- Hiển thị kết quả trực quan bằng Streamlit.
 
-## 🏗️ Kiến Trúc Tổng Thể
+## 2. Trạng thái thực tế của repository
 
-```
-User (Frontend Dashboard)
-        ↓
-   Streamlit App (main.py)
-        ↓
-   [GPU Auto-Detection]
-        ↓
-Python AI Service (backend/ai-service/)
-  ├─ Preprocessing     (Tiền xử lý ảnh)
-  ├─ AI Models         (YOLO, DeepLab)
-  ├─ Traditional CV    (Hough, Canny)
-  ├─ Fusion Engine     (Kết hợp dữ liệu)
-  ├─ Decision Engine   (Ra quyết định)
-  └─ Warning Manager   (Quản lý cảnh báo)
-        ↓
-   Real-time Dashboard + Warnings
-```
+Phần đang có code xử lý chính:
+- `main.py`: Streamlit app cho ảnh, video và webcam.
+- `backend/ai-service/`: Python AI service, gồm model wrapper, preprocessing, fusion, tracking và ADAS rules.
+- `backend/ai-service/ai_models/`: detector, trainer, weights và artifact đánh giá.
+- `backend/ai-service/adas/`: decision engine, lane departure, traffic sign warning.
+- `backend/ai-service/fusion/`: chuẩn hóa và hợp nhất kết quả nhận diện.
+- `backend/ai-service/tracking/`: DeepSORT/fallback tracking.
+- `outputs/videos/`: video kết quả đã xuất từ app.
 
----
+Phần đang là scaffold hoặc tài liệu:
+- `frontend/`: hiện chỉ có README và placeholder, chưa có React source thật.
+- `backend/node-server/`: hiện chỉ có README và placeholder, chưa có route/controller/service thật.
+- Một số thư mục docs/output/traditional CV chỉ có `.gitkeep`, đã loại khỏi cây thư mục cập nhật.
 
-## 📦 5 Thành Phần Chính
+## 3. Kiến trúc tổng quan
 
-### **1️⃣ PREPROCESSING (Tiền Xử Lý Ảnh)**
-**File**: `backend/ai-service/preprocessing/`
-
-**Chức năng:**
-- Chuyển đổi không gian màu (RGB → HSV, Gray, LAB)
-- Tăng độ tương phản (CLAHE - Contrast Limited Adaptive Histogram Equalization)
-- Áp dụng bộ lọc (Gaussian, Median, Bilateral)
-- Resize ảnh về kích thước phù hợp
-
-**Tại sao**: Chuẩn bị ảnh đầu vào cho models phát hiện, giảm noise, cải thiện chất lượng ảnh.
-
-**Ví dụ**:
-```
-Input Frame → Resize(640x480) → CLAHE → Gaussian Filter → Output Frame
-```
-
----
-
-### **2️⃣ AI MODELS (Deep Learning Detectors)**
-**File**: `backend/ai-service/ai_models/`
-
-#### **A. Vehicle Detection** (Phát hiện xe cộ)
-- **Model**: YOLOv11 (5-8x faster with GPU)
-- **Outputs**: Car, Motorcycle, Pedestrian, Truck, Bus
-- **Speed**: 20-40ms/frame với GPU | 150-200ms/frame với CPU
-- **File**: `vehicle_detection/vehicle_detector.py`
-
-#### **B. Pedestrian Detection** (Phát hiện người đi bộ)
-- **Model**: YOLOv11 Nano (lightweight)
-- **Outputs**: Person bounding boxes + confidence
-- **Speed**: 10-20ms/frame với GPU | 80-120ms/frame với CPU
-- **File**: `pedestrian_detection/detector.py`
-
-#### **C. Lane Detection** (Phát hiện làn đường)
-- **Model**: Custom CNN hoặc DeepLabV3+
-- **Outputs**: Lane segmentation mask
-- **File**: `lane_detection/` + `lane_segmentation/`
-
-#### **D. Traffic Sign Detection** (Phát hiện biển báo)
-- **Model**: YOLOv11
-- **Outputs**: Stop, No Entry, Speed Limit, Turn Left/Right
-- **File**: `traffic_sign_detection/`
-
-**GPU Acceleration**: ✅ Auto-detected + CPU fallback
-```python
-# Tự động chọn GPU nếu có CUDA, CPU nếu không
-device = get_inference_device()  # Returns 0 (GPU) or None (CPU)
-results = model.predict(frame, device=device)
+```text
+Input ảnh/video/webcam
+        |
+        v
+Streamlit app: main.py
+        |
+        |-- file upload / camera input
+        |-- chọn module chạy
+        |-- bật/tắt preprocessing
+        |-- preview frame realtime
+        v
+AI service modules
+        |
+        |-- preprocessing/
+        |-- ai_models/
+        |   |-- vehicle_detection
+        |   |-- pedestrian_detection
+        |   |-- lane_detection
+        |   |-- lane_segmentation
+        |   `-- traffic_sign_detection
+        |-- tracking/
+        |-- fusion/
+        `-- adas/
+        |
+        v
+Kết quả
+        |
+        |-- frame/video đã annotate
+        |-- counts theo module
+        |-- SceneContext
+        |-- ADASOutput
+        `-- cảnh báo hiển thị trên giao diện
 ```
 
----
+## 4. Ứng dụng Streamlit chính
 
-### **3️⃣ TRADITIONAL CV (Computer Vision)**
-**File**: `backend/ai-service/traditional_cv/`
+File: `main.py`
 
-**Chức năng:**
-- **Edge Detection**: Sobel, Canny, Laplacian → Phát hiện cạnh/viền
-- **Lane Detection**: Hough Transform + ROI → Phát hiện vạch kẻ đường
+Chức năng hiện có:
+- Chế độ ảnh: upload `jpg/jpeg/png/bmp/webp`, xử lý detection, hiển thị ảnh kết quả và tải ảnh.
+- Chế độ video: upload `mp4/avi/mov/mkv`, xử lý từng frame, hiển thị preview realtime, xuất video kết quả và tải video.
+- Chế độ webcam: dùng `st.camera_input` để chụp ảnh từ trình duyệt.
+- Sidebar chọn module:
+  - Pedestrian
+  - Vehicle
+  - Lane Detection
+  - Lane Segmentation
+  - Traffic Sign
+- Sidebar bật/tắt preprocessing.
+- Hiển thị `Scene Context / ADAS Output` để debug kết quả fusion và warning.
+- Video output được xử lý để trình duyệt có thể phát trực tiếp bằng MIME phù hợp (`video/mp4` hoặc `video/webm`).
 
-**Tại sao**: Bổ sung cho deep learning, tối ưu hóa trong các trường hợp đặc biệt.
+## 5. AI service
 
-**Ví dụ**:
-```
-Frame → Canny Edge Detection → Hough Transform → Lane Lines
-```
+Thư mục: `backend/ai-service/`
 
----
+File gốc:
+- `gpu_utils.py`: kiểm tra CUDA, chọn GPU/CPU, log thiết bị inference.
+- `requirements.txt`: dependency Python chính.
 
-### **4️⃣ FUSION ENGINE (Kết Hợp Dữ Liệu)**
-**File**: `backend/ai-service/fusion/`
-
-**Chức năng:**
-- **Scene Understanding**: Hiểu rõ cảnh quay (xe ở đâu, làn đường ở đâu, v.v.)
-- **Tracking Fusion**: Kết hợp kết quả từ các frame liên tiếp → Tracking objects
-- **Traffic Sign Fusion**: Kết hợp biển báo với vị trí xe
-- **Vehicle-Lane Fusion**: Xác định xe có lệch làn hay không
-
-**Ví dụ**:
-```
-Vehicle Detected: (100, 200, 150, 300)
-Lane Info: Vạch kẻ đường ở x=120, x=180
-Fusion Decision: Xe NẰM TRONG LĀN → OK
-                Xe VƯỢT BIÊN LĀN → CẢNH BÁO
-```
-
----
-
-### **5️⃣ DECISION ENGINE & WARNING MANAGER**
-**File**: 
-- `backend/ai-service/adas/decision_engine.py` (Ra quyết định)
-- `backend/ai-service/adas/warning_manager.py` (Quản lý cảnh báo)
-
-#### **Các Loại Cảnh Báo:**
-
-| Loại | Module | Ngôn Ngữ | Xử Lý Gì? |
-|------|--------|---------|----------|
-| **Lane Departure** | `lane_departure/` | 20+ files | Phát hiện xe lệch làn, tính offset, cảnh báo |
-| **Stop Sign** | `stop_warning.py` | Python | Phát hiện biển Stop, check xe dừng hay không |
-| **No Entry** | `no_entry_warning.py` | Python | Phát hiện biển Cấm Vào |
-| **Speed Limit** | `speed_limit.py` | Python | Phát hiện giới hạn tốc độ, cảnh báo vượt quá |
-| **Traffic Rule** | `traffic_rule.py` | Python | Kiểm tra luật giao thông khác |
-
-**Quy trình Decision:**
-```
-1. Nhận input từ Fusion Engine
-2. Check từng điều kiện cảnh báo
-3. Tính độ ưu tiên (Priority)
-4. Gửi cảnh báo quan trọng nhất cho Dashboard
-5. Lưu log cho phân tích
+Dependency chính hiện có:
+```text
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+ultralytics
+opencv-python
+numpy
+streamlit
+deep-sort-realtime
 ```
 
-**Ví dụ - Lane Departure Warning:**
-```python
-def evaluate_lane_departure(scene_context):
-    lane_info = scene_context.get('lane')  # Từ Fusion
-    vehicle_pos = scene_context.get('vehicle')  # Từ Detection
-    
-    # Tính khoảng cách xe đến vạch kẻ đường
-    offset = abs(vehicle_pos.center_x - lane_info.center_x)
-    
-    if offset > THRESHOLD_SAFE (35px):
-        return WARNING_SAFE
-    elif offset > THRESHOLD_WARNING (70px):
-        return WARNING_DANGER  # ← Cảnh báo!
-    else:
-        return OK
+## 6. Model và detector
+
+Thư mục: `backend/ai-service/ai_models/`
+
+### Vehicle Detection
+
+Thư mục: `vehicle_detection/`
+
+Thành phần:
+- `vehicle_detector.py`: wrapper chính cho YOLO vehicle detection.
+- `src/detector.py`: detector phụ/trừu tượng hóa detector.
+- `train_vehicle_detector.py`: script train.
+- `convert_bdd100k_to_yolo.py`: chuyển BDD100K sang YOLO format.
+- `vehicle_detection.yaml`: cấu hình dataset/model.
+- `weights/best.pt`, `weights/last.pt`: weights đã train.
+- `evaluation/`: 22 artifact gồm `args.yaml`, `results.csv`, confusion matrix, curve và batch image.
+
+### Pedestrian Detection
+
+Thư mục: `pedestrian_detection/`
+
+Thành phần:
+- `detector.py`: detector người đi bộ.
+- `train.py`: train YOLO pedestrian.
+- `test_pedestrian_detector.py`: script test/pick image/draw output.
+- `pedestrian_runs/`: artifact train/evaluate, gồm `detect/val`, `detect/val2`, `pedestrian/walking_v1`.
+- `pedestrian_output/nhandiennguoidibo/`: 12 ảnh output đã detect.
+
+### Lane Detection
+
+Thư mục: `lane_detection/`
+
+Thành phần:
+- `detector.py`: `LaneDetector`, detect lane từ ảnh/video.
+- `lane_det.yaml`: cấu hình dataset.
+- `weights/best.pt`: weight lane detection.
+- `README.md`: mô tả module.
+
+### Lane Segmentation
+
+Thư mục: `lane_segmentation/`
+
+Thành phần:
+- `predict.py`: `LaneSegmenter`, predict ảnh/video.
+- `train.py`: train lane segmentation.
+- `convert_via_to_yolo.py`: convert VIA dataset sang YOLO.
+- `lane_yolo.yaml`: cấu hình dataset.
+- `weights/best.pt`: weight segmentation.
+- `KAGGLE_WORKFLOW.md`, `RE_TRAIN_GUIDE.md`, `README.md`, `requirements.txt`.
+
+### Traffic Sign Detection
+
+Thư mục: `traffic_sign_detection/`
+
+Thành phần:
+- `predict.py`: preprocess, infer traffic sign, xử lý frame/video.
+- `train.py`: train traffic sign model.
+- `data.yaml`: cấu hình dataset/classes.
+- 12 ảnh mẫu đầu vào trong thư mục module.
+- `inference_outputs/prediction_results/`: 14 ảnh inference đã xuất.
+- `traffic_sign_runs/`: 24 artifact train/evaluate, gồm weights và biểu đồ.
+- `traffic_sign_runs_new/traffic_sign_52classes/`: 23 artifact cho phiên bản 52 classes.
+
+## 7. Preprocessing
+
+Thư mục: `backend/ai-service/preprocessing/`
+
+Thành phần:
+- `image_processor.py`: entry point xử lý ảnh.
+- `color_space/converter.py`: đổi RGB/HSV/Gray/LAB.
+- `enhancement/equalizer.py`: CLAHE và histogram equalization.
+- `filtering/filters.py`: Gaussian, Median, Bilateral.
+- `utils/visualizer.py`: tiện ích hiển thị/so sánh preprocessing.
+
+Vai trò:
+- Chuẩn hóa input trước khi đưa vào detector.
+- Giảm noise, tăng tương phản, resize và hỗ trợ debug trực quan.
+
+## 8. Tracking
+
+Thư mục: `backend/ai-service/tracking/`
+
+Thành phần:
+- `deepsort_tracker.py`: `Track`, `TrackerConfig`, `ObjectTracker`.
+- `README.md`: mô tả cách dùng DeepSORT/fallback.
+
+Vai trò:
+- Gán ID ổn định cho vehicle/pedestrian qua nhiều frame.
+- Có fallback IoU khi DeepSORT hoặc embedder không sẵn sàng.
+- Cung cấp track output cho Fusion.
+
+## 9. Fusion layer
+
+Thư mục: `backend/ai-service/fusion/`
+
+Thành phần:
+- `data_models.py`: `BoundingBox`, `VehicleDetection`, `PedestrianDetection`, `LaneInfo`, `TrafficSign`, `TrackInfo`, `SceneContext`.
+- `decision_engine.py`: `FusionEngine`, chuẩn hóa input và tạo context.
+- `scene_understanding.py`: hiểu scene tổng hợp.
+- `tracking_fusion.py`: liên kết detection với track.
+- `traffic_sign_fusion.py`: chuẩn hóa biển báo thành traffic rule.
+- `vehicle_lane_fusion.py`: xác định trạng thái xe so với làn.
+- `utils.py`: bbox, IoU, lane bounds, parse speed limit, timestamp.
+- `config.py`: cấu hình fusion.
+
+Vai trò:
+- Nhận output từ detector/lane/tracking/sign.
+- Chuẩn hóa dữ liệu không đồng nhất.
+- Trả về một `SceneContext` để ADAS decision engine đọc.
+
+## 10. ADAS decision và cảnh báo
+
+Thư mục: `backend/ai-service/adas/`
+
+Thành phần cấp cao:
+- `decision_engine.py`: `ADASDecisionEngine`.
+- `warning_manager.py`: gom và ưu tiên warning.
+- `data_models.py`: model dữ liệu ADAS output/warning.
+- `dashboard_output.py`: format output cho dashboard.
+- `stop_warning.py`, `no_entry_warning.py`, `speed_limit.py`, `traffic_rule.py`: rule cảnh báo cụ thể.
+
+### Lane Departure
+
+Thư mục: `adas/lane_departure/`
+
+Thành phần chính:
+- `lane_departure_service.py`: service xử lý lệch làn.
+- `validator.py`, `frame_validator.py`, `vehicle_validator.py`, `lane_validator.py`, `tracking_validator.py`: validate input.
+- `lane_center.py`, `lane_width.py`, `lane_offset.py`, `normalize_offset.py`: tính toán hình học làn.
+- `lane_status.py`, `direction.py`, `lane_warning.py`, `warning_engine.py`: phân loại trạng thái và cảnh báo.
+- `lane_visualizer.py`: vẽ overlay cảnh báo lên frame.
+- `models.py`, `config.py`, `utils.py`, `dashboard_sender.py`.
+
+### Traffic Sign Warning
+
+Thư mục: `adas/traffic_sign/`
+
+Thành phần chính:
+- `sign_input_service.py`, `sign_reader.py`: chuẩn hóa input biển báo.
+- `class_mapper.py`: mapping class từ detector.
+- `confidence_filter.py`: lọc theo confidence.
+- `bbox_parser.py`: chuẩn hóa bbox.
+- `speed_rule_parser.py`, `speed_limit_service.py`, `speed_limit_manager.py`: xử lý speed limit.
+- `warning_decision.py`, `warning_service.py`, `warning_manager.py`: sinh cảnh báo.
+- `priority_manager.py`, `warning_queue.py`, `warning_history.py`, `warning_timer.py`: quản lý ưu tiên, queue, lịch sử và thời gian warning.
+- `dashboard_sender.py`: gửi/format output cho dashboard.
+- `traffic_sign_config.yaml`: cấu hình module.
+- `test_traffic_sign.py`: test pipeline traffic sign.
+
+## 11. Dữ liệu và artifact
+
+Root weights:
+- `yolo11n.pt`
+- `yolo26x.pt`
+
+Weights trong module:
+- `vehicle_detection/weights/best.pt`
+- `vehicle_detection/weights/last.pt`
+- `lane_detection/weights/best.pt`
+- `lane_segmentation/weights/best.pt`
+- `traffic_sign_runs/weights/best.pt`
+- `traffic_sign_runs/weights/last.pt`
+- `traffic_sign_runs_new/traffic_sign_52classes/weights/best.pt`
+- `traffic_sign_runs_new/traffic_sign_52classes/weights/last.pt`
+- `pedestrian_runs/pedestrian/walking_v1/weights/best.pt`
+- `pedestrian_runs/pedestrian/walking_v1/weights/last.pt`
+
+Generated output hiện có:
+- `outputs/videos/tmp3w1ne8g8_streamlit_annotated.mp4`
+- `outputs/videos/tmpd2tj4_hl_streamlit_annotated.mp4`
+
+Các thư mục `outputs/predictions/`, `outputs/reports/`, `outputs/screenshots/` hiện chỉ có placeholder nên không được tính là nội dung thật.
+
+## 12. Frontend và Node server
+
+`frontend/`:
+- Hiện có `README.md`.
+- Các nhánh `public/`, `src/assets/`, `src/components/`, `src/services/` chỉ có placeholder.
+- Chưa có `package.json`, component React hoặc service API thật trong workspace hiện tại.
+
+`backend/node-server/`:
+- Hiện có `README.md`.
+- Các nhánh `controllers/`, `middleware/`, `routes/`, `services/`, `uploads/` chỉ có placeholder.
+- Chưa có `server.js` hoặc code Express thật trong workspace hiện tại.
+
+Vì vậy, giao diện chạy được hiện tại là Streamlit trong `main.py`, không phải React dashboard.
+
+## 13. Luồng xử lý video trong Streamlit
+
+```text
+Upload video
+    |
+    v
+Lưu tạm file upload
+    |
+    v
+cv2.VideoCapture đọc từng frame
+    |
+    v
+process_image()
+    |
+    |-- preprocessing nếu bật
+    |-- vehicle detection
+    |-- pedestrian detection
+    |-- lane detection
+    |-- lane segmentation
+    |-- traffic sign detection
+    |-- tracking
+    |-- fusion
+    `-- ADAS warning
+    |
+    v
+Vẽ annotation và warning lên frame
+    |
+    v
+Ghi video output bằng codec trình duyệt phát được
+    |
+    v
+st.video hiển thị inline + download_button
 ```
 
----
+## 14. Cách chạy
 
-## 🎯 Data Flow Hoàn Chỉnh
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  INPUT: Video Frame (từ camera, video file, hay webcam)     │
-└─────────────┬───────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────┐
-│  PREPROCESSING: Resize, CLAHE, Filter                       │
-│  (tối ưu cho models)                                        │
-└─────────────┬───────────────────────────────────────────────┘
-              ↓
-      ┌───────┴───────┐
-      ↓               ↓
-┌─────────────┐  ┌─────────────────────┐
-│ Deep Learning│  │ Traditional CV      │
-├─────────────┤  ├─────────────────────┤
-│ Vehicle Det.│  │ Edge Detection      │
-│ Pedestrian  │  │ Lane Detection      │
-│ Lane Seg.   │  │ Hough Transform     │
-│ Traffic Sign│  │                     │
-│ (GPU 5-8x)  │  │                     │
-└─────────────┘  └─────────────────────┘
-      ↓               ↓
-      └───────┬───────┘
-              ↓
-┌─────────────────────────────────────────────────────────────┐
-│  FUSION ENGINE:                                             │
-│  • Scene Understanding (kết hợp tất cả detections)         │
-│  • Tracking (DeepSORT - gắn ID cho objects)               │
-│  • Relationship Detection (xe ở vị trí nào trong làn?)    │
-└─────────────┬───────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────┐
-│  DECISION ENGINE:                                           │
-│  • Check Lane Departure Warning                            │
-│  • Check Traffic Sign Warnings                             │
-│  • Check Traffic Rules                                     │
-│  • Prioritize warnings (cảnh báo gì quan trọng nhất?)     │
-└─────────────┬───────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────────────────────┐
-│  OUTPUT:                                                    │
-│  • Streamlit Dashboard (Visualize)                         │
-│  • JSON Warnings (API response)                            │
-│  • Logs & Analytics                                        │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🎮 Giao Diện Người Dùng
-
-**File**: `main.py` (Streamlit Dashboard)
-
-**Hiển thị:**
-- 📹 Video stream với bounding boxes
-- 🚨 Real-time warnings panel
-- 📊 Detection statistics (xe, người, biển báo)
-- 🛣️ Lane departure visualization
-- ⚙️ Configuration controls
-
-**Chạy**:
+Chạy Streamlit app:
 ```bash
-# Auto-detect GPU
 python -m streamlit run main.py
-
-# Force GPU
-$env:AI_DEVICE="gpu"; python -m streamlit run main.py
-
-# Force CPU
-$env:AI_DEVICE="cpu"; python -m streamlit run main.py
 ```
 
-**Truy cập**: http://localhost:8501
-
----
-
-## 🚀 GPU Acceleration Support
-
-**File**: `gpu_utils.py` + `GPU_ACCELERATION.md`
-
-**Tính năng:**
-- ✅ Auto-detect CUDA (NVIDIA GPU)
-- ✅ Automatic CPU fallback nếu không có GPU
-- ✅ Environment variable override (`AI_DEVICE`)
-- ✅ 5-8x speedup với GPU (NVIDIA RTX/A series)
-- ✅ Zero accuracy loss (GPU inference = CPU inference)
-
-**Performance Comparison**:
-| Task | CPU | GPU | Speedup |
-|------|-----|-----|---------|
-| Vehicle Detection | 150-200ms | 20-40ms | **5-8x** |
-| Pedestrian Det. | 80-120ms | 10-20ms | **6-10x** |
-| Traffic Sign Det. | 100-150ms | 15-30ms | **5-10x** |
-| **Total Pipeline** | 400-500ms | 60-100ms | **5-7x** |
-
----
-
-## 📝 Project Statistics
-
-```
-📊 Code Statistics:
-├─ Python files: 60+ (backend)
-├─ React components: 10+ (frontend - optional)
-├─ Jupyter notebooks: 5+ (experiments)
-├─ Documentation: 15+ markdown files
-├─ Test files: 10+
-
-🤖 AI Models Included:
-├─ YOLOv11 (4 variants: n, s, m, x)
-├─ DeepLabV3+
-├─ DeepSORT Tracker
-└─ Custom CNN layers
-
-📦 Dependencies:
-├─ ultralytics (YOLO)
-├─ opencv-python
-├─ torch + torchvision (GPU support)
-├─ streamlit (UI)
-├─ numpy, scipy, scikit-image
-└─ deepcopy, PyYAML, python-dotenv
-```
-
----
-
-## 🎯 Workflow Từng Bước
-
-### **Sử dụng Ứng Dụng:**
-```
-1. Chạy: python -m streamlit run main.py
-2. Mở browser: http://localhost:8501
-3. Upload video hoặc chọn webcam
-4. System tự động:
-   a. Đọc frame từ video
-   b. Preprocessing
-   c. Phát hiện objects (GPU 5-8x)
-   d. Fusion scene
-   e. Ra quyết định cảnh báo
-   f. Hiển thị dashboard
-5. Xem real-time warnings + statistics
-```
-
-### **Thêm Warning Type Mới:**
-```
-1. Tạo file: backend/ai-service/adas/my_warning.py
-2. Implement: evaluate() method
-3. Register: ở warning_manager.py
-4. Deploy: Không cần restart
-```
-
----
-
-## 📚 File Cấu Hình
-
-```
-.env.example          # Environment variables template
-GPU_ACCELERATION.md   # GPU setup guide
-requirements.txt      # Python dependencies
-package.json          # Node.js dependencies (optional)
-```
-
----
-
-## ✅ Testing & Verification
-
+Hoặc:
 ```bash
-# Test GPU support
-python test_gpu_support.py
-
-# Run unit tests
-pytest backend/ai-service/tests/
-
-# Check model compatibility
-python -c "from ultralytics import YOLO; m = YOLO('yolo11n.pt')"
+streamlit run main.py
 ```
 
----
+Kiểm tra GPU support:
+```bash
+python test_gpu_support.py
+```
 
-## 🔗 Related Documentation
+Cài dependency Python chính:
+```bash
+cd backend/ai-service
+pip install -r requirements.txt
+```
 
-- **GPU_ACCELERATION.md** - Detailed GPU setup
-- **cây thư mục_updated.md** - Complete file structure
-- **docs/Phát hiện và cảnh báo xe lệch làn.md** - Lane departure detail
-- **docs/Traffic Sign Warning.md** - Traffic sign detection detail
-- **docs/project-state.md** - Current development status
+## 15. Thống kê repository sau khi lọc placeholder
 
----
+Sau khi bỏ `.git/`, `__pycache__/`, `.gitkeep` và file 0 byte:
+- 281 file có nội dung.
+- 47 thư mục có nội dung thật.
+- Tổng dung lượng khoảng 353.7 MB.
 
-## 🎓 Key Technologies
+Theo phần mở rộng:
+- `.jpg`: 91
+- `.py`: 90
+- `.png`: 40
+- `.md`: 28
+- `.pt`: 12
+- `.yaml`: 10
+- `.csv`: 3
+- `.mp4`: 2
+- `.txt`: 2
+- `.example`: 1
+- `.gitattributes`: 1
+- `.gitignore`: 1
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Inference** | YOLOv11 + DeepLabV3+ | Fast, accurate detection |
-| **GPU** | CUDA 12.8 + PyTorch 2.11 | 5-8x speedup |
-| **Tracking** | DeepSORT | Assign IDs to objects |
-| **Fusion** | Custom logic | Combine multiple detections |
-| **Decision** | Rules engine | Generate warnings |
-| **UI** | Streamlit | Real-time dashboard |
-| **Image Proc** | OpenCV | Frame manipulation |
+## 16. Những phần không đưa vào overview/cây vì rỗng
 
----
+- `docs/Dashboard Realtime.md` vì file 0 byte.
+- `backend/ai-service/evaluation/`.
+- `backend/ai-service/traditional_cv/edge_detection/`.
+- `backend/ai-service/traditional_cv/lane_detection/`.
+- `backend/node-server/controllers/`, `middleware/`, `routes/`, `services/`, `uploads/`.
+- `frontend/public/`, `frontend/src/assets/`, `frontend/src/components/`, `frontend/src/services/`.
+- `docs/diagrams/`, `docs/proposal/`, `docs/references/`, `docs/slides/`.
+- `outputs/predictions/`, `outputs/reports/`, `outputs/screenshots/`.
+- Các `__init__.py` 0 byte và toàn bộ `__pycache__/`.
 
-**Status**: ✅ Production-Ready | ✅ GPU Optimized | ✅ Fully Tested
+## 17. Tài liệu liên quan
 
-**Last Updated**: 2026-07-10  
-**GPU Support**: ✅ Auto-detected with CPU fallback  
-**Performance**: 5-7x faster with GPU
+- `README.md`: hướng dẫn tổng quan ở root.
+- `GPU_ACCELERATION.md`: hướng dẫn GPU/CUDA.
+- `docs/cây thư mục_updated.md`: cây thư mục cập nhật.
+- `docs/Phát hiện và cảnh báo xe lệch làn.md`: mô tả lane departure.
+- `docs/Traffic Sign Warning.md`: mô tả traffic sign warning.
+- `docs/project-state.md`: trạng thái phát triển.
+- `docs/report/BAO_CAO_TONG_HOP.md`: báo cáo tổng hợp.
+
+## 18. Kết luận trạng thái
+
+Dự án hiện là demo ADAS chạy được qua Streamlit, với trọng tâm là Python AI pipeline. Các phần model, preprocessing, tracking, fusion và ADAS warning đã có source thực tế. React frontend và Node server hiện mới ở mức scaffold/tài liệu, nên không nên mô tả như module đã triển khai đầy đủ.
+
+Last updated: 2026-07-10.

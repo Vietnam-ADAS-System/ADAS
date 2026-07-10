@@ -6,6 +6,8 @@ import importlib.util
 import inspect
 import io
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -78,6 +80,87 @@ def _resize_for_preview(
     new_width = max(1, int(width * fit_scale))
     new_height = max(1, int(height * fit_scale))
     return cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+
+def _create_browser_video_writer(
+    output_path: Path,
+    fps: float,
+    frame_size: Tuple[int, int],
+) -> Tuple[cv2.VideoWriter, str, Path]:
+    codec_candidates = (
+        ("avc1", ".mp4"),
+        ("H264", ".mp4"),
+        ("VP80", ".webm"),
+        ("VP90", ".webm"),
+        ("mp4v", ".mp4"),
+    )
+    for codec, suffix in codec_candidates:
+        candidate_path = output_path.with_suffix(suffix)
+        writer = cv2.VideoWriter(
+            str(candidate_path),
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            frame_size,
+        )
+        if writer.isOpened():
+            return writer, codec, candidate_path
+        writer.release()
+    raise RuntimeError("Could not create output video writer.")
+
+
+def _find_ffmpeg_executable() -> Optional[str]:
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+    except ImportError:
+        return None
+
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _ensure_browser_playable_video(video_path: Path, codec: str) -> Path:
+    if codec in {"avc1", "H264", "VP80", "VP90"}:
+        return video_path
+
+    ffmpeg_path = _find_ffmpeg_executable()
+    if ffmpeg_path is None:
+        return video_path
+
+    temp_output = video_path.with_name(f"{video_path.stem}_playable_tmp{video_path.suffix}")
+    for encoder in ("libx264", "h264"):
+        command = [
+            ffmpeg_path,
+            "-y",
+            "-i",
+            str(video_path),
+            "-an",
+            "-c:v",
+            encoder,
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-vf",
+            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(temp_output),
+        ]
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if result.returncode == 0 and temp_output.exists() and temp_output.stat().st_size > 0:
+            temp_output.replace(video_path)
+            return video_path
+        temp_output.unlink(missing_ok=True)
+
+    return video_path
 
 
 _drop_stale_adas_modules()
@@ -689,7 +772,7 @@ def process_video(
     output_dir = OUTPUT_DIR_VIDEOS
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{Path(video_path).stem}_streamlit_annotated.mp4"
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    writer, writer_codec, output_path = _create_browser_video_writer(output_path, fps, (width, height))
 
     processed_frames = 0
     total_elapsed = 0.0
@@ -739,6 +822,7 @@ def process_video(
         status.write(f"Done: {processed_frames} frames")
 
     avg_fps = processed_frames / total_elapsed if total_elapsed > 0 else 0.0
+    output_path = _ensure_browser_playable_video(output_path, writer_codec)
     return str(output_path), avg_fps
 
 
@@ -844,17 +928,19 @@ def render_video_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
         preview_placeholder=preview_slot,
         preview_scale=config.preview_scale,
     )
+    with open(output_path, "rb") as video_file:
+        video_bytes = video_file.read()
+    video_format = "video/webm" if Path(output_path).suffix.lower() == ".webm" else "video/mp4"
     with center_col:
-        st.video(output_path)
+        st.video(video_bytes, format=video_format)
     st.write(f"FPS trung bình: {avg_fps:.2f}")
 
-    with open(output_path, "rb") as video_file:
-        st.download_button(
-            "Tải video kết quả",
-            data=video_file.read(),
-            file_name=Path(output_path).name,
-            mime="video/mp4",
-        )
+    st.download_button(
+        "Tải video kết quả",
+        data=video_bytes,
+        file_name=Path(output_path).name,
+        mime=video_format,
+    )
 
 
 
