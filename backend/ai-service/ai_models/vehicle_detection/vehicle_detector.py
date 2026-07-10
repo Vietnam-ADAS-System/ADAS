@@ -16,6 +16,7 @@ if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from preprocessing.image_processor import ImageProcessor
+from gpu_utils import get_inference_device, log_inference_device
 
 TARGET_LABELS = ("person", "car", "motorcycle")
 LABEL_VI = {
@@ -66,9 +67,22 @@ class VehicleObjectDetector:
     @classmethod
     def from_env(cls) -> "VehicleObjectDetector":
         _load_project_env()
-        device = os.getenv("AI_DEVICE", "auto").strip()
-        if device.lower() == "auto":
+        # Sử dụng gpu_utils để auto-detect GPU với logging tốt hơn
+        device_env = os.getenv("AI_DEVICE", "auto").strip().lower()
+        if device_env == "auto" or device_env == "":
+            # Auto-detect CUDA
+            device = get_inference_device()
+        elif device_env == "cpu":
             device = None
+        elif device_env in ("gpu", "cuda", "0", "1", "2"):
+            try:
+                device = int(device_env) if device_env.isdigit() else 0
+            except ValueError:
+                device = 0
+        else:
+            device = None
+        
+        log_inference_device(device)
 
         target_labels = tuple(
             label

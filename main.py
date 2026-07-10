@@ -6,6 +6,8 @@ import importlib.util
 import inspect
 import io
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -55,6 +57,110 @@ def _drop_stale_adas_modules() -> None:
     evaluate_method = getattr(engine_class, "evaluate", None)
     if evaluate_method is not None and not _has_signature_parameter(evaluate_method, "frame_size"):
         _drop_adas_modules()
+
+
+def _resize_for_preview(
+    frame: np.ndarray,
+    scale: float,
+    max_width: int = 960,
+    max_height: int = 620,
+) -> np.ndarray:
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return frame
+
+    scale = max(0.1, min(scale, 1.0))
+    scale_by_width = max_width / float(width)
+    scale_by_height = max_height / float(height)
+    fit_scale = min(scale, scale_by_width, scale_by_height, 1.0)
+
+    if fit_scale >= 0.999:
+        return frame
+
+    new_width = max(1, int(width * fit_scale))
+    new_height = max(1, int(height * fit_scale))
+    return cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+
+def _create_browser_video_writer(
+    output_path: Path,
+    fps: float,
+    frame_size: Tuple[int, int],
+) -> Tuple[cv2.VideoWriter, str, Path]:
+    codec_candidates = (
+        ("avc1", ".mp4"),
+        ("H264", ".mp4"),
+        ("VP80", ".webm"),
+        ("VP90", ".webm"),
+        ("mp4v", ".mp4"),
+    )
+    for codec, suffix in codec_candidates:
+        candidate_path = output_path.with_suffix(suffix)
+        writer = cv2.VideoWriter(
+            str(candidate_path),
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            frame_size,
+        )
+        if writer.isOpened():
+            return writer, codec, candidate_path
+        writer.release()
+    raise RuntimeError("Could not create output video writer.")
+
+
+def _find_ffmpeg_executable() -> Optional[str]:
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+    except ImportError:
+        return None
+
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _ensure_browser_playable_video(video_path: Path, codec: str) -> Path:
+    if codec in {"avc1", "H264", "VP80", "VP90"}:
+        return video_path
+
+    ffmpeg_path = _find_ffmpeg_executable()
+    if ffmpeg_path is None:
+        return video_path
+
+    temp_output = video_path.with_name(f"{video_path.stem}_playable_tmp{video_path.suffix}")
+    for encoder in ("libx264", "h264"):
+        command = [
+            ffmpeg_path,
+            "-y",
+            "-i",
+            str(video_path),
+            "-an",
+            "-c:v",
+            encoder,
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-vf",
+            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(temp_output),
+        ]
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if result.returncode == 0 and temp_output.exists() and temp_output.stat().st_size > 0:
+            temp_output.replace(video_path)
+            return video_path
+        temp_output.unlink(missing_ok=True)
+
+    return video_path
 
 
 _drop_stale_adas_modules()
@@ -113,6 +219,7 @@ class StreamlitConfig:
     mode: str
     modules: Sequence[str]
     enable_preprocessing: bool
+    preview_scale: float = 0.65
 
 
 @dataclass
@@ -126,17 +233,19 @@ class FrameAnalysis:
 
 
 class TrafficSignVision:
-    def __init__(self, weights_path: Path, enable_preprocessing: bool = True):
+    def __init__(self, weights_path: Path, enable_preprocessing: bool = True, device: Optional[int] = None):
         from ultralytics import YOLO
+        from gpu_utils import get_inference_device, log_inference_device
 
         self.model = YOLO(str(weights_path))
         self.enable_preprocessing = enable_preprocessing
         self.last_count = 0
-        self.mapping_fix = {
-            "Cam re phai": "Cam quay dau",
-            "Gioi han toc do 40kmh": "Gioi han toc do 50kmh",
-            "Gioi han toc do 60kmh": "Gioi han toc do 50kmh",
-        }
+        # Xác định device (GPU hoặc CPU)
+        self.device = device if device is not None else get_inference_device()
+        log_inference_device(self.device)
+        # Di chuyển model sang device
+        if self.device is not None:
+            self.model.to(self.device)
 
     def detect(self, frame: np.ndarray) -> np.ndarray:
         module = _load_module("traffic_sign_module", MODULE_PATHS["traffic_sign"])
@@ -153,11 +262,12 @@ class TrafficSignVision:
             conf=0.15,
             agnostic_nms=True,
             verbose=False,
+            device=self.device,  # ← GPU/CPU inference
         )
         self.last_count = 0
         if len(results) > 0 and getattr(results[0], "boxes", None) is not None:
             self.last_count = len(results[0].boxes)
-        return module.process_frame(frame.copy(), results, self.model.names, self.mapping_fix)
+        return module.process_frame(frame.copy(), results, self.model.names, {})
 
     def detect_with_detections(
         self,
@@ -178,11 +288,12 @@ class TrafficSignVision:
             conf=0.15,
             agnostic_nms=True,
             verbose=False,
+            device=self.device,  # ← GPU/CPU inference
         )
         detections = self._parse_detections(results)
         self.last_count = len(detections)
         canvas = draw_on.copy() if draw_on is not None else frame.copy()
-        annotated = module.process_frame(canvas, results, self.model.names, self.mapping_fix)
+        annotated = module.process_frame(canvas, results, self.model.names, {})
         return annotated, detections
 
     def _parse_detections(self, results: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -195,11 +306,10 @@ class TrafficSignVision:
                 x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
                 class_id = int(box.cls[0])
                 model_text = self.model.names[class_id]
-                final_text = self.mapping_fix.get(model_text, model_text)
                 detections.append(
                     {
                         "id": index,
-                        "class": final_text,
+                        "class": model_text,
                         "bbox": [x1, y1, x2, y2],
                         "confidence": float(box.conf[0].item()),
                     }
@@ -642,7 +752,14 @@ def process_image(
 
 
 
-def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str], enable_preview: bool = False) -> Tuple[str, float]:
+def process_video(
+    video_path: str,
+    models: Dict[str, Any],
+    modules: Sequence[str],
+    enable_preview: bool = False,
+    preview_placeholder: Optional[Any] = None,
+    preview_scale: float = 0.65,
+) -> Tuple[str, float]:
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
@@ -655,7 +772,7 @@ def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str
     output_dir = OUTPUT_DIR_VIDEOS
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{Path(video_path).stem}_streamlit_annotated.mp4"
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    writer, writer_codec, output_path = _create_browser_video_writer(output_path, fps, (width, height))
 
     processed_frames = 0
     total_elapsed = 0.0
@@ -684,7 +801,20 @@ def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str
             status.write(f"Processing frame {processed_frames}/{total_frames or '?'}")
 
             if enable_preview:
-                st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption=f"Frame {processed_frames}", channels="RGB")
+                preview_image = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+                preview_image = _resize_for_preview(preview_image, preview_scale)
+                if preview_placeholder is not None:
+                    preview_placeholder.image(
+                        preview_image,
+                        caption=f"Realtime frame {processed_frames}",
+                        use_container_width=False,
+                    )
+                else:
+                    st.image(
+                        preview_image,
+                        caption=f"Realtime frame {processed_frames}",
+                        use_container_width=False,
+                    )
     finally:
         capture.release()
         writer.release()
@@ -692,6 +822,7 @@ def process_video(video_path: str, models: Dict[str, Any], modules: Sequence[str
         status.write(f"Done: {processed_frames} frames")
 
     avg_fps = processed_frames / total_elapsed if total_elapsed > 0 else 0.0
+    output_path = _ensure_browser_playable_video(output_path, writer_codec)
     return str(output_path), avg_fps
 
 
@@ -700,6 +831,14 @@ def render_sidebar() -> StreamlitConfig:
     st.sidebar.title("ADAS Demo")
     mode = st.sidebar.radio("Chế độ", ["Ảnh", "Video", "Webcam"], index=0)
     enable_preprocessing = st.sidebar.toggle("Bật preprocessing", value=True)
+    preview_scale = st.sidebar.slider(
+        "Kích thước khung preview video",
+        min_value=0.4,
+        max_value=1.0,
+        value=0.65,
+        step=0.05,
+        help="Giảm kích thước hiển thị để nhìn trọn video và giảm tải giao diện, không đổi frame đầu vào cho model.",
+    )
     st.sidebar.caption("Chọn module chạy")
 
     module_selection = []
@@ -711,7 +850,12 @@ def render_sidebar() -> StreamlitConfig:
     if not module_selection:
         module_selection = ["pedestrian", "vehicle", "lane_detection", "lane_segmentation", "traffic_sign"]
 
-    return StreamlitConfig(mode=mode, modules=module_selection, enable_preprocessing=enable_preprocessing)
+    return StreamlitConfig(
+        mode=mode,
+        modules=module_selection,
+        enable_preprocessing=enable_preprocessing,
+        preview_scale=preview_scale,
+    )
 
 
 
@@ -773,17 +917,30 @@ def render_video_mode(config: StreamlitConfig, models: Dict[str, Any]) -> None:
         return
 
     temp_path = file_bytes_to_temp_path(uploaded.read(), suffix=Path(uploaded.name).suffix)
-    output_path, avg_fps = process_video(temp_path, models, config.modules)
-    st.video(output_path)
+    left_col, center_col, right_col = st.columns([1, 2.2, 1])
+    with center_col:
+        preview_slot = st.empty()
+    output_path, avg_fps = process_video(
+        temp_path,
+        models,
+        config.modules,
+        enable_preview=True,
+        preview_placeholder=preview_slot,
+        preview_scale=config.preview_scale,
+    )
+    with open(output_path, "rb") as video_file:
+        video_bytes = video_file.read()
+    video_format = "video/webm" if Path(output_path).suffix.lower() == ".webm" else "video/mp4"
+    with center_col:
+        st.video(video_bytes, format=video_format)
     st.write(f"FPS trung bình: {avg_fps:.2f}")
 
-    with open(output_path, "rb") as video_file:
-        st.download_button(
-            "Tải video kết quả",
-            data=video_file.read(),
-            file_name=Path(output_path).name,
-            mime="video/mp4",
-        )
+    st.download_button(
+        "Tải video kết quả",
+        data=video_bytes,
+        file_name=Path(output_path).name,
+        mime=video_format,
+    )
 
 
 
