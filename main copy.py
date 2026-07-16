@@ -24,7 +24,7 @@ AI_SERVICE_ROOT = REPO_ROOT / "backend" / "ai-service"
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-APP_CACHE_VERSION = "adas-vehicle-class-label-v9"
+APP_CACHE_VERSION = "adas-fusion-lane-departure-v5"
 
 def _has_signature_parameter(callable_obj: Any, parameter_name: str) -> bool:
     try:
@@ -288,18 +288,7 @@ class TrafficSignVision:
         from ultralytics import YOLO
         from gpu_utils import get_inference_device, log_inference_device
 
-        self.inference_module = _load_module(
-            "traffic_sign_module_ocr_v8",
-            MODULE_PATHS["traffic_sign"],
-        )
         self.model = YOLO(str(weights_path))
-        self.digit_recognizer = self.inference_module.DigitRecognizer(
-            allowed_values=(40, 50, 60, 80),
-            min_confidence=0.0,
-        )
-        self.mapping_fix = {
-            "Cam re phai": "Cam quay dau",
-        }
         self.enable_preprocessing = enable_preprocessing
         self.last_count = 0
         # Xác định device (GPU hoặc CPU)
@@ -309,8 +298,35 @@ class TrafficSignVision:
         if self.device is not None:
             self.model.to(self.device)
 
-    def _detect_detections(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        frame_for_inference = self.inference_module.apply_preprocessing(
+    def detect(self, frame: np.ndarray) -> np.ndarray:
+        module = _load_module("traffic_sign_module", MODULE_PATHS["traffic_sign"])
+        frame_for_inference = module.apply_preprocessing(
+            frame,
+            enable_preprocessing=self.enable_preprocessing,
+            preprocessing_config={
+                "enable_preprocessing": True,
+                "apply_resize": False,  # ✓ YOLO tự xử lý letterbox
+            },
+        )
+        results = self.model.predict(
+            source=frame_for_inference,
+            conf=0.15,
+            agnostic_nms=True,
+            verbose=False,
+            device=self.device,  # ← GPU/CPU inference
+        )
+        self.last_count = 0
+        if len(results) > 0 and getattr(results[0], "boxes", None) is not None:
+            self.last_count = len(results[0].boxes)
+        return module.process_frame(frame.copy(), results, self.model.names, {})
+
+    def detect_with_detections(
+        self,
+        frame: np.ndarray,
+        draw_on: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        module = _load_module("traffic_sign_module", MODULE_PATHS["traffic_sign"])
+        frame_for_inference = module.apply_preprocessing(
             frame,
             enable_preprocessing=self.enable_preprocessing,
             preprocessing_config={
@@ -320,36 +336,36 @@ class TrafficSignVision:
         )
         results = self.model.predict(
             source=frame_for_inference,
-            imgsz=960,
             conf=0.15,
-            iou=0.45,
             agnostic_nms=True,
             verbose=False,
-            device=self.device,
+            device=self.device,  # ← GPU/CPU inference
         )
-        detections = self.inference_module.parse_detections(
-            frame=frame,
-            results=results,
-            model_names=self.model.names,
-            mapping_fix=self.mapping_fix,
-            digit_recognizer=self.digit_recognizer,
-        )
+        detections = self._parse_detections(results)
         self.last_count = len(detections)
-        return detections
-
-    def detect(self, frame: np.ndarray) -> np.ndarray:
-        detections = self._detect_detections(frame)
-        return _draw_traffic_sign_detections(frame, detections)
-
-    def detect_with_detections(
-        self,
-        frame: np.ndarray,
-        draw_on: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        detections = self._detect_detections(frame)
         canvas = draw_on.copy() if draw_on is not None else frame.copy()
         annotated = _draw_traffic_sign_detections(canvas, detections)
         return annotated, detections
+
+    def _parse_detections(self, results: Iterable[Any]) -> List[Dict[str, Any]]:
+        detections: List[Dict[str, Any]] = []
+        for result in results:
+            boxes = getattr(result, "boxes", None)
+            if boxes is None:
+                continue
+            for index, box in enumerate(boxes, start=1):
+                x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
+                class_id = int(box.cls[0])
+                model_text = self.model.names[class_id]
+                detections.append(
+                    {
+                        "id": index,
+                        "class": model_text,
+                        "bbox": [x1, y1, x2, y2],
+                        "confidence": float(box.conf[0].item()),
+                    }
+                )
+        return detections
 
 
 @st.cache_resource
@@ -953,14 +969,6 @@ OBJECT_TYPE_VI = {
     "lane": "Vạch làn",
 }
 
-VEHICLE_CLASS_ALIASES = {
-    "car": "car",
-    "motorcycle": "motorbike",
-    "motorbike": "motorbike",
-    "bus": "bus",
-    "truck": "truck",
-}
-
 PRIORITY_VI = {
     "CRITICAL": "Khẩn cấp",
     "HIGH": "Cao",
@@ -986,12 +994,6 @@ def _object_type_vi(value: Any) -> str:
     key = str(value or "").strip()
     normalized = key.lower().replace("-", "_").replace(" ", "_")
     return OBJECT_TYPE_VI.get(normalized, key or "Đối tượng")
-
-
-def _vehicle_class_label(value: Any) -> str:
-    key = str(value or "").strip()
-    normalized = key.lower().replace("-", "_").replace(" ", "_")
-    return VEHICLE_CLASS_ALIASES.get(normalized, key or "vehicle")
 
 
 def _priority_vi(value: Any) -> str:
@@ -1107,9 +1109,7 @@ def _build_object_details(
             {
                 "STT": index,
                 "ID": f"ID {track_id}" if track_id is not None else f"Phát hiện {index}",
-                "Loại": _vehicle_class_label(
-                    detection.get("class_name", detection.get("label", "vehicle"))
-                ),
+                "Loại": _object_type_vi(detection.get("label_vi", detection.get("class_name"))),
                 "Độ tin cậy": _confidence_percent(detection.get("confidence")),
                 "BBox": _bbox_to_text(bbox),
                 "Trạng thái": "Đã gán track" if track_id is not None else "Chưa gán track",
@@ -1144,15 +1144,12 @@ def _build_object_details(
 
     for index, detection in enumerate(traffic_sign_detections, 1):
         bbox = _bbox_from_value(detection)
-        digit_value = detection.get("digit_value")
         details["traffic_signs"].append(
             {
                 "STT": index,
                 "ID": f"Biển báo {detection.get('id', index)}",
                 "Loại": _translate_sign_text(detection.get("class", "Biển báo giao thông")),
                 "Độ tin cậy": _confidence_percent(detection.get("confidence")),
-                "Tốc độ OCR": f"{digit_value} km/h" if digit_value is not None else "-",
-                "Độ tin cậy OCR": _confidence_percent(detection.get("digit_confidence")),
                 "BBox": _bbox_to_text(bbox),
             }
         )
@@ -1201,7 +1198,6 @@ def _translate_sign_text(value: Any) -> str:
     )
     for source, target in replacements:
         text = re.sub(source, target, text, flags=re.IGNORECASE)
-    text = re.sub(r"(\d+)\s*kmh\b", r"\1 km/h", text, flags=re.IGNORECASE)
     return text or "Biển báo giao thông"
 
 
@@ -1423,26 +1419,27 @@ def _translate_lane_label(value: Any) -> str:
 
 def _draw_vehicle_detections(frame: np.ndarray, detections: Sequence[Dict[str, Any]]) -> None:
     colors = {
+        "person": (40, 220, 40),
         "car": (255, 120, 40),
-        "motorbike": (40, 180, 255),
-        "bus": (180, 80, 255),
-        "truck": (80, 220, 220),
+        "motorcycle": (40, 180, 255),
     }
     for detection in detections:
-        bbox = _bbox_from_value(detection)
-        if bbox is None:
+        bbox = detection.get("bbox", {})
+        try:
+            x1 = int(bbox["x1"])
+            y1 = int(bbox["y1"])
+            x2 = int(bbox["x2"])
+            y2 = int(bbox["y2"])
+        except (KeyError, TypeError, ValueError):
             continue
-        x1, y1, x2, y2 = [int(value) for value in bbox]
 
-        class_name = _vehicle_class_label(
-            detection.get("class_name", detection.get("label", "vehicle"))
-        )
+        class_name = str(detection.get("class_name", "vehicle"))
         confidence = float(detection.get("confidence", 0.0))
         color = colors.get(class_name, (255, 255, 255))
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         _draw_text(
             frame,
-            f"{class_name} {confidence:.2f}",
+            f"{_object_type_vi(detection.get('label_vi', class_name))} {confidence:.2f}",
             (x1, max(y1 - 24, 2)),
             color,
             font_size=16,
@@ -1458,10 +1455,7 @@ def _draw_traffic_sign_detections(frame: np.ndarray, detections: Sequence[Dict[s
         if bbox is None:
             continue
         x1, y1, x2, y2 = [int(value) for value in bbox]
-        confidence_value = detection.get("confidence", 0.0)
-        if detection.get("digit_value") is not None:
-            confidence_value = detection.get("digit_confidence", confidence_value)
-        confidence = float(confidence_value or 0.0)
+        confidence = float(detection.get("confidence", 0.0))
         label = _translate_sign_text(detection.get("class", "Biển báo"))
         cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         _draw_text(
@@ -1678,12 +1672,7 @@ def _draw_tracks(frame: np.ndarray, tracks: Iterable[Any]) -> None:
         x1, y1, x2, y2 = [int(value) for value in bbox[:4]]
         track_id = getattr(track, "track_id", "?")
         class_name = getattr(track, "class_name", "object")
-        vehicle_label = _vehicle_class_label(class_name)
-        class_label = (
-            vehicle_label
-            if vehicle_label in VEHICLE_CLASS_ALIASES.values()
-            else _object_type_vi(class_name)
-        )
+        class_vi = _object_type_vi(class_name)
 
         # Phân biệt vật gần / xa để ưu tiên hiển thị
         bbox_bottom_ratio = y2 / max(h, 1)
@@ -1691,13 +1680,13 @@ def _draw_tracks(frame: np.ndarray, tracks: Iterable[Any]) -> None:
 
         if is_near:
             color = (0, 255, 255)        # vàng cyan - vật gần
-            label = f"ID {track_id} {class_label}"
+            label = f"ID {track_id} {class_vi}"
             font_size = 18
             stroke = 1
             bbox_thick = 2
         else:
             color = (0, 200, 0)          # xanh lá - vật xa
-            label = class_label           # chỉ tên class, bỏ ID cho gọn
+            label = class_vi             # chỉ tên class, bỏ ID cho gọn
             font_size = 14
             stroke = 1
             bbox_thick = 2
@@ -1884,14 +1873,13 @@ def _generate_traffic_sign_warnings(traffic_sign_detections: List[Dict[str, Any]
         # Map detection sang rule cho TV4
         for detection in traffic_sign_detections:
             class_name = detection.get("class", "")
-
+            
             # Tính khoảng cách dựa trên diện tích bbox (bbox lớn = gần hơn)
-            bbox = _bbox_from_value(detection)
-            if bbox is None:
-                bbox_area = 0.0
-            else:
-                x1, y1, x2, y2 = bbox
-                bbox_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+            x1 = detection.get("x", 0)
+            y1 = detection.get("y", 0)
+            x2 = detection.get("x2", x1 + 10)
+            y2 = detection.get("y2", y1 + 10)
+            bbox_area = (x2 - x1) * (y2 - y1)
             
             # Tạo warning rule dựa trên class name
             if "Cam" in class_name or "No entry" in class_name or "Prohibited" in class_name:

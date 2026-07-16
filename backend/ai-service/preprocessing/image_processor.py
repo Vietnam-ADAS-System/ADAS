@@ -56,8 +56,10 @@ class ImageProcessor:
             return frame
 
         module_key = (module_name or "").strip().lower()
-        if module_key in {"vehicle", "pedestrian"}:
+        if module_key in {"vehicle", "vehicle_detection"}:
             return self.preprocess_for_vehicle_detection(frame)
+        if module_key in {"pedestrian", "pedestrian_detection"}:
+            return self.preprocess_for_pedestrian_detection(frame)
         if module_key in {"lane_detection", "lane_segmentation", "lane"}:
             lane_output = self.preprocess_for_lane_detection(frame)
             output_key = config.get("output_key", "bgr")

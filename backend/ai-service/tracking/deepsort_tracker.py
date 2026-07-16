@@ -5,7 +5,7 @@ Theo dõi xe, người đi bộ qua nhiều frame, gán ID ổn định
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -248,7 +248,11 @@ class ObjectTracker:
             return []
         
         # Normalize detections thành format [x1, y1, x2, y2, confidence]
-        detections_list = self._normalize_detections(detections, is_vehicle)
+        detections_list = self._normalize_detections(
+            detections,
+            is_vehicle,
+            default_class=class_name,
+        )
         
         # Lọc theo min_confidence
         detections_list = [
@@ -269,13 +273,24 @@ class ObjectTracker:
             else:
                 tracker = self.tracker
             
-            # Chuyển thành numpy array (format DeepSORT: [x1, y1, x2, y2, conf])
-            detections_array = np.array(detections_list)
+            deep_sort_detections = [
+                (
+                    [
+                        detection[0],
+                        detection[1],
+                        detection[2] - detection[0],
+                        detection[3] - detection[1],
+                    ],
+                    detection[4],
+                    detection[5],
+                )
+                for detection in detections_list
+            ]
             
             # Update DeepSORT tracker
             try:
                 tracks = tracker.update_tracks(
-                    detections_array,
+                    deep_sort_detections,
                     frame=frame,
                 )
                 
@@ -288,10 +303,18 @@ class ObjectTracker:
                     bbox = deep_sort_track.to_xyxy()
                     # Tìm detection gốc để lấy confidence
                     conf = self._find_detection_confidence(bbox, detections_list)
-                    
+                    tracked_class = self._find_detection_class(
+                        bbox,
+                        detections_list,
+                        default=class_name,
+                    )
+                    get_det_class = getattr(deep_sort_track, "get_det_class", None)
+                    if callable(get_det_class):
+                        tracked_class = get_det_class() or tracked_class
+
                     track = Track(
                         track_id=deep_sort_track.track_id,
-                        class_name=class_name,
+                        class_name=str(tracked_class),
                         bbox=bbox,
                         confidence=conf,
                         frame_count=deep_sort_track.hits,
@@ -358,8 +381,11 @@ class ObjectTracker:
         return [x1, y1, x2, y2], conf
 
     def _normalize_detections(
-        self, detections: List[Dict], is_vehicle: bool
-    ) -> List[List[float]]:
+        self,
+        detections: List[Dict],
+        is_vehicle: bool,
+        default_class: str,
+    ) -> List[List[Any]]:
         """
         Normalize detections từ vehicle/pedestrian detector thành format DeepSORT
         Format output: [[x1, y1, x2, y2, confidence], ...]
@@ -383,7 +409,13 @@ class ObjectTracker:
                     logger.debug(f"Skipping invalid bbox: {bbox}")
                     continue
 
-                normalized.append([x1, y1, x2, y2, conf])
+                detection_class = str(
+                    det.get("class_name", det.get("label", default_class))
+                ).strip() or default_class
+                if is_vehicle and detection_class == "motorcycle":
+                    detection_class = "motorbike"
+
+                normalized.append([x1, y1, x2, y2, conf, detection_class])
 
             except (KeyError, ValueError, TypeError) as e:
                 logger.debug(f"Error normalizing detection {det}: {e}")
@@ -392,7 +424,7 @@ class ObjectTracker:
         return normalized
     
     def _find_detection_confidence(
-        self, bbox: List[float], detections_list: List[List[float]]
+        self, bbox: List[float], detections_list: List[List[Any]]
     ) -> float:
         """
         Tìm confidence của detection gốc dựa vào bbox
@@ -409,6 +441,21 @@ class ObjectTracker:
             if self._bbox_iou(bbox, det[:4]) > 0.5:
                 return det[4]
         return 0.0
+
+    def _find_detection_class(
+        self,
+        bbox: List[float],
+        detections_list: List[List[Any]],
+        default: str,
+    ) -> str:
+        best_class = default
+        best_iou = 0.0
+        for detection in detections_list:
+            iou = self._bbox_iou(bbox, detection[:4])
+            if iou > best_iou:
+                best_iou = iou
+                best_class = str(detection[5])
+        return best_class
     
     @staticmethod
     def _bbox_iou(box1: List[float], box2: List[float]) -> float:
@@ -435,7 +482,7 @@ class ObjectTracker:
         return inter_area / union_area
     
     def _iou_matching(
-        self, detections_list: List[List[float]], class_name: str
+        self, detections_list: List[List[Any]], class_name: str
     ) -> List[Track]:
         """
         IoU-based matching fallback khi DeepSORT không available
@@ -456,13 +503,14 @@ class ObjectTracker:
         for detection in detections_list:
             det_box = detection[:4]
             det_conf = detection[4]
+            detection_class = str(detection[5] or class_name)
             
             # Tìm best match trong active tracks
             best_track_id = None
             best_iou = 0
             
             for track_id, track in self._active_tracks.items():
-                if track.class_name != class_name:
+                if track.class_name != detection_class:
                     continue  # Chỉ match cùng class
                 
                 iou = self._bbox_iou(det_box, track.bbox)
@@ -486,7 +534,7 @@ class ObjectTracker:
                 
                 new_track = Track(
                     track_id=new_track_id,
-                    class_name=class_name,
+                    class_name=detection_class,
                     bbox=det_box,
                     confidence=det_conf,
                     frame_count=1,

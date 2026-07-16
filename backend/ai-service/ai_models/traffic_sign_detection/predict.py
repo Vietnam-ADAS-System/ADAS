@@ -1,225 +1,349 @@
+"""Traffic-sign inference for images and videos."""
+
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
 from tkinter import Tk, filedialog
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from ai_models.traffic_sign_detection.digit_recognizer import (
+    DigitRecognition,
+    DigitRecognizer,
+    crop_bbox,
+)
 from preprocessing.image_processor import ImageProcessor
 from preprocessing.utils.visualizer import save_comparison
 
 
+SPEED_LIMIT_PREFIX = "Gioi han toc do"
+
+
 def apply_preprocessing(
-    frame,
+    frame: np.ndarray,
     enable_preprocessing: bool = True,
     preprocessing_config: Optional[Dict[str, Any]] = None,
     visualize: bool = False,
     output_dir: str = "",
-):
-    """
-    Apply configurable preprocessing before traffic sign inference.
-    
-    Parameters:
-    -----------
-    frame : np.ndarray
-        Input image (BGR)
-    enable_preprocessing : bool
-        Whether to apply preprocessing
-    preprocessing_config : dict
-        Config with apply_resize=False (YOLO tự xử lý letterbox)
-    visualize : bool
-        Save before/after comparison image
-    output_dir : str
-        Directory to save comparison image
-    
-    Returns:
-    --------
-    Preprocessed image (BGR)
-    """
+) -> np.ndarray:
+    """Apply traffic-sign preprocessing without changing frame dimensions."""
     if not enable_preprocessing or frame is None or frame.size == 0:
         return frame
 
-    frame_original = frame.copy()
-    preprocessing_config = preprocessing_config or {"enable_preprocessing": True}
+    original = frame.copy()
+    config = preprocessing_config or {"enable_preprocessing": True}
     processor = ImageProcessor(target_size=(frame.shape[1], frame.shape[0]))
-    frame_processed = processor.apply_module_preprocessing(
+    processed = processor.apply_module_preprocessing(
         frame,
         module_name="traffic_sign",
-        config=preprocessing_config,
+        config=config,
     )
-    
+
     if visualize and output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        comparison_path = os.path.join(output_dir, "preprocessing_comparison.jpg")
-        save_comparison(frame_original, frame_processed, comparison_path, 
-                       title="Traffic Sign Preprocessing (Original | After Median Filter)")
-        print(f"[preprocessing] Visualized: {comparison_path}")
-    
-    return frame_processed
+        comparison_path = os.path.join(
+            output_dir,
+            "preprocessing_comparison.jpg",
+        )
+        save_comparison(
+            original,
+            processed,
+            comparison_path,
+            title="Traffic Sign Preprocessing",
+        )
 
-def process_frame(frame, results, model_names, mapping_fix):
-    """Hàm phụ trợ để vẽ bounding box và nhãn lên frame/ảnh"""
+    return processed
+
+
+def is_speed_limit_label(label: str) -> bool:
+    normalized = str(label).lower()
+    return (
+        SPEED_LIMIT_PREFIX.lower() in normalized
+        or "speed limit" in normalized
+    )
+
+
+def refine_detection_label(
+    frame: np.ndarray,
+    bbox: Sequence[float],
+    model_text: str,
+    mapping_fix: Optional[Mapping[str, str]] = None,
+    digit_recognizer: Optional[DigitRecognizer] = None,
+) -> Tuple[str, Optional[DigitRecognition]]:
+    """Replace a speed-limit class using digits read from the sign crop."""
+    final_text = (mapping_fix or {}).get(model_text, model_text)
+
+    if digit_recognizer is None or not is_speed_limit_label(model_text):
+        return final_text, None
+
+    sign_crop = crop_bbox(frame, bbox)
+    recognition = digit_recognizer.recognize(sign_crop)
+
+    # YOLO only locates/classifies the speed-sign group. The speed value comes
+    # exclusively from OCR, so never retain the numeric YOLO class as fallback.
+    final_text = SPEED_LIMIT_PREFIX
+    if recognition.succeeded:
+        final_text = f"{SPEED_LIMIT_PREFIX} {recognition.value}kmh"
+
+    return final_text, recognition
+
+
+def parse_detections(
+    frame: np.ndarray,
+    results: Any,
+    model_names: Any,
+    mapping_fix: Optional[Mapping[str, str]] = None,
+    digit_recognizer: Optional[DigitRecognizer] = None,
+) -> List[Dict[str, Any]]:
+    """Convert YOLO results into normalized traffic-sign detections."""
+    detections: List[Dict[str, Any]] = []
+
     for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            continue
+
+        for index, box in enumerate(boxes, start=1):
+            bbox = [
+                float(value)
+                for value in box.xyxy[0].tolist()
+            ]
             class_id = int(box.cls[0])
-            
-            # Lấy tên gốc từ mô hình đang bị lệch
-            model_text = model_names[class_id]
-            confidence = box.conf[0].item()
-            
-            # Kiểm tra và đổi tên chuẩn theo bảng mapping
-            final_text = mapping_fix.get(model_text, model_text)
+            model_text = str(model_names[class_id])
+            confidence = float(box.conf[0].item())
 
-            # Vẽ hộp bọc màu đỏ lên hình ảnh hiển thị
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3) 
-            
-            # Gắn nhãn kết quả chuẩn lên hình (Chữ xanh lá cây)
-            label_display = f"{final_text} {confidence:.2f}"
-            cv2.putText(frame, label_display, (x1, max(y1 - 10, 15)), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-    return frame
+            final_text, recognition = refine_detection_label(
+                frame=frame,
+                bbox=bbox,
+                model_text=model_text,
+                mapping_fix=mapping_fix,
+                digit_recognizer=digit_recognizer,
+            )
+
+            detections.append(
+                {
+                    "id": index,
+                    "class_id": class_id,
+                    "class": final_text,
+                    "model_class": model_text,
+                    "bbox": bbox,
+                    "confidence": confidence,
+                    "digit_value": (
+                        recognition.value
+                        if recognition is not None
+                        else None
+                    ),
+                    "digit_confidence": (
+                        recognition.confidence
+                        if recognition is not None
+                        else None
+                    ),
+                }
+            )
+
+    return detections
 
 
-def infer_traffic_sign(model, frame, preprocessing_config: Optional[Dict[str, Any]] = None):
-    """Run traffic-sign inference with a higher traffic-sign-only input size."""
-    preprocessing_config = preprocessing_config or {}
-    imgsz = int(preprocessing_config.get("imgsz", 960))
-    conf = float(preprocessing_config.get("conf", 0.15))   # tăng từ 0.1 lên 0.4
-    iou = float(preprocessing_config.get("iou", 0.45))     # thêm mới, giảm từ default 0.7
-    agnostic_nms = bool(preprocessing_config.get("agnostic_nms", True))
+def draw_detections(
+    frame: np.ndarray,
+    detections: Sequence[Dict[str, Any]],
+) -> np.ndarray:
+    """Draw parsed traffic-sign detections on a frame."""
+    output = frame.copy()
+
+    for detection in detections:
+        x1, y1, x2, y2 = [
+            int(value)
+            for value in detection["bbox"]
+        ]
+        confidence = detection.get("confidence", 0.0)
+        if detection.get("digit_value") is not None:
+            confidence = detection.get("digit_confidence", confidence)
+        label = (
+            f"{detection['class']} "
+            f"{float(confidence):.2f}"
+        )
+
+        cv2.rectangle(
+            output,
+            (x1, y1),
+            (x2, y2),
+            (0, 0, 255),
+            3,
+        )
+        cv2.putText(
+            output,
+            label,
+            (x1, max(y1 - 10, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+    return output
+
+
+def process_frame(
+    frame: np.ndarray,
+    results: Any,
+    model_names: Any,
+    mapping_fix: Optional[Mapping[str, str]] = None,
+    digit_recognizer: Optional[DigitRecognizer] = None,
+) -> np.ndarray:
+    """Parse and draw YOLO traffic-sign results."""
+    detections = parse_detections(
+        frame=frame,
+        results=results,
+        model_names=model_names,
+        mapping_fix=mapping_fix,
+        digit_recognizer=digit_recognizer,
+    )
+    return draw_detections(frame, detections)
+
+
+def infer_traffic_sign(
+    model: YOLO,
+    frame: np.ndarray,
+    preprocessing_config: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Run traffic-sign inference."""
+    config = preprocessing_config or {}
+
     return model.predict(
         source=frame,
-        conf=conf,
-        iou=iou,
-        imgsz=imgsz,
-        agnostic_nms=agnostic_nms,
+        imgsz=int(config.get("imgsz", 960)),
+        conf=float(config.get("conf", 0.15)),
+        iou=float(config.get("iou", 0.45)),
+        agnostic_nms=bool(config.get("agnostic_nms", True)),
         verbose=False,
     )
 
-def main():
-    # 1. Tự động bật cửa sổ chọn file (File Dialog)
+
+def choose_input_file() -> str:
     root = Tk()
-    root.withdraw() 
-    root.attributes('-topmost', True) 
-    
-    print("📂 Đang mở cửa sổ chọn file... Bạn hãy bấm chọn 1 bức ảnh hoặc video muốn test nhé!")
-    
-    # Đưa All files lên đầu tiên để ép Windows hiển thị mọi file, kết hợp dùng dấu chấm phẩy (;)
-    file_to_test = filedialog.askopenfilename(
-        title="Chọn ảnh/video biển báo giao thông để chạy thử nghiệm AI mới",
-        filetypes=[
-            ("All files", "*.*"),
-            ("Video files", "*.mp4;*.avi;*.mov;*.mkv"),
-            ("Image files", "*.jpg;*.jpeg;*.png;*.webp;*.bmp")
-        ]
-    )
-    
-    if not file_to_test:
-        print("⚠️ Bạn đã hủy chọn file. Chương trình kết thúc.")
-        return
-        
-    print(f"📸 File bạn đã chọn: {file_to_test}")
+    root.withdraw()
+    root.attributes("-topmost", True)
 
-    # Lấy đường dẫn tuyệt đối của thư mục chứa file code hiện tại
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Nội suy đường dẫn model và thư mục output từ vị trí file code
-    model_path = os.path.join(base_dir, "traffic_sign_runs_new", "traffic_sign_52classes", "weights", "best.pt")
-    output_project_dir = os.path.join(base_dir, "inference_outputs")
-
-    if not os.path.exists(model_path):
-        print(f"❌ Không tìm thấy file weights mới tại: {model_path}")
-        return
-        
-    print("🚀 Đang nạp hệ thống phân tích YOLO11n...")
-    model = YOLO(model_path)
-    
-    mapping_fix = {
-        "Cam re phai": "Cam quay dau",
-        "Gioi han toc do 40kmh": "Gioi han toc do 50kmh",  
-        "Gioi han toc do 60kmh": "Gioi han toc do 50kmh",  
-    }
-    
-    output_dir = os.path.join(output_project_dir, "prediction_results")
-    os.makedirs(output_dir, exist_ok=True)
-    base_name = os.path.basename(file_to_test)
-    
-    # Kiểm tra định dạng file
-    ext = os.path.splitext(file_to_test)[1].lower()
-    is_video = ext in ['.mp4', '.avi', '.mov', '.mkv']
-
-    if not is_video:
-        # ---------------- XỬ LÝ ẢNH ----------------
-        img_cv = cv2.imread(file_to_test)
-        img_cv = apply_preprocessing(
-            img_cv,
-            enable_preprocessing=True,
-            preprocessing_config={
-                "enable_preprocessing": True,
-                "apply_resize": False,
-            },
-            visualize=True,
-            output_dir=output_dir,
+    try:
+        return filedialog.askopenfilename(
+            title="Chon anh hoac video bien bao giao thong",
+            filetypes=[
+                ("All files", "*.*"),
+                ("Video files", "*.mp4;*.avi;*.mov;*.mkv"),
+                ("Image files", "*.jpg;*.jpeg;*.png;*.webp;*.bmp"),
+            ],
         )
-        results = infer_traffic_sign(
-    model,
-    img_cv,
-    preprocessing_config={
-        "imgsz": 960,
-        "conf": 0.15,      # sửa từ 0.1
-        "iou": 0.45,      # thêm mới
-        "agnostic_nms": True,
-    },
-)
-        
-        print("\n--- KẾT QUẢ PHÂN TÍCH BIỂN BÁO ---")
-        for result in results:
-            for box in result.boxes:
-                class_id = int(box.cls[0])
-                conf = box.conf[0].item()
-                name = mapping_fix.get(model.names[class_id], model.names[class_id])
-                print(f"🎯 Phát hiện ──> {name} ({conf*100:.1f}%)")
-                
-        img_cv = process_frame(img_cv, results, model.names, mapping_fix)
-        
-        output_path = os.path.join(output_dir, base_name)
-        cv2.imwrite(output_path, img_cv)
-        print("\n================ ĐÃ HOÀN THÀNH XỬ LÝ ================")
-        print(f"🎉 Kết quả ảnh trực quan đã được xuất tại: {output_path}")
+    finally:
+        root.destroy()
 
-    else:
-        # ---------------- XỬ LÝ VIDEO ----------------
-        cap = cv2.VideoCapture(file_to_test)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        
-        output_path = os.path.join(output_dir, f"result_{base_name}")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
-        print("\n🎥 Đang xử lý video... Vui lòng đợi trong giây lát.")
-        
-        frame_count = 0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
+
+def print_detections(
+    detections: Sequence[Dict[str, Any]],
+) -> None:
+    print("\n--- KET QUA PHAN TICH BIEN BAO ---")
+
+    if not detections:
+        print("Khong phat hien bien bao.")
+        return
+
+    for detection in detections:
+        message = (
+            f"Phat hien: {detection['class']} "
+            f"({float(detection['confidence']) * 100:.1f}%)"
+        )
+        digit_confidence = detection.get("digit_confidence")
+        if detection.get("digit_value") is not None:
+            message += f" | Digit OCR: {digit_confidence:.2f}"
+        print(message)
+
+
+def process_image(
+    input_path: Path,
+    output_dir: Path,
+    model: YOLO,
+    mapping_fix: Mapping[str, str],
+    digit_recognizer: DigitRecognizer,
+) -> Path:
+    frame = cv2.imread(str(input_path))
+    if frame is None:
+        raise ValueError(f"Khong the doc anh: {input_path}")
+
+    inference_frame = apply_preprocessing(
+        frame,
+        enable_preprocessing=True,
+        preprocessing_config={
+            "enable_preprocessing": True,
+            "apply_resize": False,
+        },
+        visualize=True,
+        output_dir=str(output_dir),
+    )
+    results = infer_traffic_sign(model, inference_frame)
+    detections = parse_detections(
+        frame=frame,
+        results=results,
+        model_names=model.names,
+        mapping_fix=mapping_fix,
+        digit_recognizer=digit_recognizer,
+    )
+
+    print_detections(detections)
+    annotated = draw_detections(frame, detections)
+    output_path = output_dir / input_path.name
+
+    if not cv2.imwrite(str(output_path), annotated):
+        raise RuntimeError(f"Khong the ghi anh: {output_path}")
+
+    return output_path
+
+
+def process_video(
+    input_path: Path,
+    output_dir: Path,
+    model: YOLO,
+    mapping_fix: Mapping[str, str],
+    digit_recognizer: DigitRecognizer,
+) -> Path:
+    capture = cv2.VideoCapture(str(input_path))
+    if not capture.isOpened():
+        raise ValueError(f"Khong the mo video: {input_path}")
+
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = float(capture.get(cv2.CAP_PROP_FPS)) or 25.0
+    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    output_path = output_dir / f"result_{input_path.stem}.mp4"
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
+    if not writer.isOpened():
+        capture.release()
+        raise RuntimeError(f"Khong the tao video: {output_path}")
+
+    frame_count = 0
+    try:
+        while True:
+            success, frame = capture.read()
+            if not success:
                 break
-                
+
             frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"⏳ Đang xử lý frame {frame_count}/{total_frames}...")
-                
-            frame = apply_preprocessing(
+            inference_frame = apply_preprocessing(
                 frame,
                 enable_preprocessing=True,
                 preprocessing_config={
@@ -227,23 +351,91 @@ def main():
                     "apply_resize": False,
                 },
             )
-            results = infer_traffic_sign(
-    model,
-    img_cv,
-    preprocessing_config={
-        "imgsz": 960,
-        "conf": 0.15,      # sửa từ 0.1
-        "iou": 0.45,      # thêm mới
-        "agnostic_nms": True,
-    },
-)
-            frame = process_frame(frame, results, model.names, mapping_fix)
-            out.write(frame)
-            
-        cap.release()
-        out.release()
-        print("\n================ ĐÃ HOÀN THÀNH XỬ LÝ ================")
-        print(f"🎉 Kết quả video trực quan đã được xuất tại: {output_path}")
+            results = infer_traffic_sign(model, inference_frame)
+            detections = parse_detections(
+                frame=frame,
+                results=results,
+                model_names=model.names,
+                mapping_fix=mapping_fix,
+                digit_recognizer=digit_recognizer,
+            )
+            writer.write(draw_detections(frame, detections))
+
+            if frame_count % 30 == 0:
+                print(
+                    f"Dang xu ly frame "
+                    f"{frame_count}/{total_frames}"
+                )
+    finally:
+        capture.release()
+        writer.release()
+
+    return output_path
+
+
+def main() -> None:
+    selected_file = choose_input_file()
+    if not selected_file:
+        print("Da huy chon file.")
+        return
+
+    base_dir = Path(__file__).resolve().parent
+    model_path = (
+        base_dir
+        / "traffic_sign_runs_new"
+        / "traffic_sign_52classes"
+        / "weights"
+        / "best.pt"
+    )
+    output_dir = (
+        base_dir
+        / "inference_outputs"
+        / "prediction_results"
+    )
+
+    if not model_path.exists():
+        print(f"Khong tim thay model: {model_path}")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    model = YOLO(str(model_path))
+    digit_recognizer = DigitRecognizer(
+        allowed_values=(40, 50, 60, 80),
+        min_confidence=0.0,
+    )
+
+    # Khong ep cac bien 40/60 thanh 50 nua.
+    mapping_fix = {
+        "Cam re phai": "Cam quay dau",
+    }
+
+    input_path = Path(selected_file)
+    is_video = input_path.suffix.lower() in {
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".mkv",
+    }
+
+    if is_video:
+        output_path = process_video(
+            input_path,
+            output_dir,
+            model,
+            mapping_fix,
+            digit_recognizer,
+        )
+    else:
+        output_path = process_image(
+            input_path,
+            output_dir,
+            model,
+            mapping_fix,
+            digit_recognizer,
+        )
+
+    print(f"Da luu ket qua tai: {output_path}")
+
 
 if __name__ == "__main__":
     main()
