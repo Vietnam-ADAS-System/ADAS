@@ -310,51 +310,85 @@ class ObjectTracker:
         
         return result_tracks
     
+    @staticmethod
+    def _extract_bbox_and_conf(
+        det: Dict, default_class_format: bool = False
+    ) -> Tuple[List[float], float]:
+        """Extract [x1, y1, x2, y2] và confidence từ detection dict.
+
+        Hỗ trợ nhiều format:
+          - {"bbox": {"x1": ..., "y1": ..., ...}, "confidence": ...}
+          - {"bbox": [x1, y1, x2, y2], "confidence": ...}
+          - {"x1": ..., "y1": ..., "x2": ..., "y2": ..., "confidence": ...}
+          - {"bbox": [x1, y1, x2, y2], "conf": ...}
+        """
+        bbox = det.get("bbox")
+        conf_keys = ("confidence", "conf")
+        conf = 0.0
+        for key in conf_keys:
+            if key in det:
+                try:
+                    conf = float(det[key])
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+        x1 = y1 = x2 = y2 = 0.0
+
+        if isinstance(bbox, dict):
+            x1 = float(bbox.get("x1", 0))
+            y1 = float(bbox.get("y1", 0))
+            x2 = float(bbox.get("x2", 0))
+            y2 = float(bbox.get("y2", 0))
+        elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            try:
+                x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+            except (TypeError, ValueError):
+                pass
+        else:
+            # Thử keys trực tiếp trên det
+            try:
+                x1 = float(det.get("x1", 0))
+                y1 = float(det.get("y1", 0))
+                x2 = float(det.get("x2", 0))
+                y2 = float(det.get("y2", 0))
+            except (TypeError, ValueError):
+                pass
+
+        return [x1, y1, x2, y2], conf
+
     def _normalize_detections(
         self, detections: List[Dict], is_vehicle: bool
     ) -> List[List[float]]:
         """
         Normalize detections từ vehicle/pedestrian detector thành format DeepSORT
         Format output: [[x1, y1, x2, y2, confidence], ...]
-        
+
         Args:
             detections: Detections từ detector
             is_vehicle: True nếu từ vehicle detector, False nếu pedestrian
-        
+
         Returns:
             List của [x1, y1, x2, y2, confidence]
         """
         normalized = []
-        
+
         for det in detections:
             try:
-                if is_vehicle:
-                    # Vehicle detector format: {"bbox": {"x1", "y1", "x2", "y2", ...}, "confidence": ...}
-                    bbox = det.get("bbox", {})
-                    x1 = float(bbox.get("x1", 0))
-                    y1 = float(bbox.get("y1", 0))
-                    x2 = float(bbox.get("x2", 0))
-                    y2 = float(bbox.get("y2", 0))
-                    conf = float(det.get("confidence", 0.0))
-                else:
-                    # Pedestrian detector format: {"x1", "y1", "x2", "y2", "confidence", ...}
-                    x1 = float(det.get("x1", 0))
-                    y1 = float(det.get("y1", 0))
-                    x2 = float(det.get("x2", 0))
-                    y2 = float(det.get("y2", 0))
-                    conf = float(det.get("confidence", 0.0))
-                
+                bbox, conf = self._extract_bbox_and_conf(det)
+
                 # Validate bbox
+                x1, y1, x2, y2 = bbox
                 if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
-                    logger.debug(f"Skipping invalid bbox: {[x1, y1, x2, y2]}")
+                    logger.debug(f"Skipping invalid bbox: {bbox}")
                     continue
-                
+
                 normalized.append([x1, y1, x2, y2, conf])
-            
+
             except (KeyError, ValueError, TypeError) as e:
                 logger.debug(f"Error normalizing detection {det}: {e}")
                 continue
-        
+
         return normalized
     
     def _find_detection_confidence(

@@ -1519,36 +1519,137 @@ def _draw_box(frame: np.ndarray, detection: Dict[str, Any], color: Tuple[int, in
 
 
 def _draw_lane_detections(frame: np.ndarray, detections: Sequence[Dict[str, Any]]) -> None:
+    """Vẽ lane detections: ưu tiên vẽ mask outline (polygon), fallback bbox nếu không có mask."""
     for detection in detections:
-        bbox = detection.get("bbox", [])
-        if len(bbox) < 4:
-            continue
-        x1, y1, x2, y2 = [int(value) for value in bbox[:4]]
+        mask = detection.get("mask")
         label = _translate_lane_label(detection.get("class_name", "lane"))
         confidence = float(detection.get("conf", detection.get("confidence", 0.0)))
         color = MODULE_COLORS["lane_detection"]
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        _draw_text(
-            frame,
-            f"{label} {confidence:.2f}",
-            (x1, max(y1 - 22, 2)),
-            color,
-            font_size=15,
-            stroke_width=2,
-        )
+        text = f"{label} {confidence:.2f}"
+
+        if mask is not None and int(np.count_nonzero(mask)) > 0:
+            # Vẽ contour outline cho mask thay vì bbox (vì YOLO-seg bbox rất rộng)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(frame, contours, -1, color, 2)
+
+            # Đặt label tại top của mask bounding region
+            ys, xs = np.where(mask > 0)
+            if len(xs) > 0:
+                tx = int(np.min(xs))
+                ty = int(np.min(ys))
+                _draw_text(frame, text, (tx, max(ty - 22, 2)), color, font_size=15, stroke_width=2)
+        else:
+            # Fallback: vẽ bbox
+            bbox = detection.get("bbox", [])
+            if len(bbox) < 4:
+                continue
+            x1, y1, x2, y2 = [int(value) for value in bbox[:4]]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            _draw_text(frame, text, (x1, max(y1 - 22, 2)), color, font_size=15, stroke_width=2)
 
 
-def _overlay_lane_mask(frame: np.ndarray, mask: Optional[np.ndarray]) -> np.ndarray:
+def _overlay_lane_mask(frame: np.ndarray, mask: Optional[np.ndarray], lane_color_bgr: Tuple[int, int, int] = (120, 120, 255)) -> np.ndarray:
     if mask is None or mask.size == 0 or int(np.count_nonzero(mask)) == 0:
         return frame
     overlay = frame.copy()
     color_layer = np.zeros_like(frame)
-    color_layer[mask > 0] = MODULE_COLORS["lane_segmentation"]
+    color_layer[mask > 0] = lane_color_bgr
     cv2.addWeighted(color_layer, 0.45, overlay, 0.55, 0, overlay)
     return overlay
 
 
+# Màu BGR cho từng class trong lane segmentation
+# Phong cách ADAS phổ biến:
+#   - lane_line: trắng nhạt (220, 220, 220) — outline trong suốt, mỏng, sát vạch
+#   - road:      đỏ pastel (120, 130, 220) — nền đường xe đang đi (alpha thấp)
+LANE_SEG_CLASS_COLORS = {
+    "lane_line": (220, 220, 220),  # trắng nhạt
+    "road": (120, 130, 220),      # đỏ pastel
+}
+
+
+def _overlay_lane_class_masks(
+    frame: np.ndarray,
+    class_masks: Optional[Dict[str, np.ndarray]],
+    sky_top_fraction: float = 0.45,
+    lane_band_horizontal: int = 90,
+    lane_band_vertical: int = 200,
+) -> np.ndarray:
+    """Overlay từng class với màu riêng.
+
+    Pipeline:
+    1. lane_line mask thường phủ cả bầu trời / nhà / cây vì model yếu.
+       Ta ép lane_mask chỉ giữ phần ở nửa dưới ảnh (vạch thật nằm ở mặt đất).
+    2. Từ lane_mask thật, dilate ellipse nhỏ vừa đủ để ra "vùng lane xe đang đi".
+    3. Vẽ MỘT lớp hồng phấn nhạt đồng nhất. Không chồng thêm lớp đậm nữa.
+    """
+    if not class_masks:
+        return frame
+
+    overlay = frame.copy()
+    h = frame.shape[0]
+    w = frame.shape[1]
+    ground_cutoff = int(h * sky_top_fraction)
+
+    lane_mask_raw = class_masks.get("lane_line")
+    road_mask = class_masks.get("road")
+
+    # Bước 1: lọc lane_mask - CHỈ giữ phần dưới ground_cutoff
+    lane_mask_clean = np.zeros((h, w), dtype=np.uint8)
+    if lane_mask_raw is not None and int(np.count_nonzero(lane_mask_raw)) > 0:
+        ground_only = lane_mask_raw[ground_cutoff:, :].copy()
+        if int(np.count_nonzero(ground_only)) > 0:
+            lane_mask_clean[ground_cutoff:, :] = ground_only
+        else:
+            if road_mask is not None:
+                ground_road = road_mask[ground_cutoff:, :].copy()
+                if int(np.count_nonzero(ground_road)) > 0:
+                    lane_mask_clean[ground_cutoff:, :] = ground_road
+
+    if int(np.count_nonzero(lane_mask_clean)) == 0:
+        return overlay
+
+    has_road = road_mask is not None and int(np.count_nonzero(road_mask)) > 0
+
+    # Bước 2: dilate thành lane band rồi close lỗ
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (lane_band_horizontal, lane_band_vertical)
+    )
+    lane_band = cv2.dilate(lane_mask_clean, kernel, iterations=1)
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (60, 60))
+    lane_band = cv2.morphologyEx(lane_band, cv2.MORPH_CLOSE, close_kernel)
+    lane_band[:ground_cutoff, :] = 0  # giữ nửa dưới
+
+    # Bước 3a: vẽ ROAD overlay (đỏ pastel) - alpha thấp → trong, không át cảnh
+    if has_road:
+        road_clean = np.zeros((h, w), dtype=np.uint8)
+        ground_road = road_mask[ground_cutoff:, :]
+        if int(np.count_nonzero(ground_road)) > 0:
+            road_clean[ground_cutoff:, :] = ground_road
+        color_layer = np.zeros_like(overlay)
+        color_layer[road_clean > 0] = LANE_SEG_CLASS_COLORS["road"]
+        cv2.addWeighted(color_layer, 0.18, overlay, 0.82, 0, overlay)
+    elif int(np.count_nonzero(lane_band)) > 0:
+        # Fallback: dùng lane_band nếu không có road mask riêng
+        color_layer = np.zeros_like(overlay)
+        color_layer[lane_band > 0] = LANE_SEG_CLASS_COLORS["road"]
+        cv2.addWeighted(color_layer, 0.16, overlay, 0.84, 0, overlay)
+
+    # Bước 3b: vẽ LANE_LINE outline (trắng nhạt, trong) - nét mỏng 1px
+    contours, _ = cv2.findContours(
+        lane_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    cv2.drawContours(
+        overlay, contours, -1, LANE_SEG_CLASS_COLORS["lane_line"], 1
+    )
+
+    return overlay
+
+
+
 def _draw_tracks(frame: np.ndarray, tracks: Iterable[Any]) -> None:
+    h = frame.shape[0]
+    near_threshold_ratio = 0.55  # bbox_bottom > 55% chiều cao ảnh = vật gần
     for track in tracks:
         bbox = getattr(track, "bbox", None)
         if bbox is None or len(bbox) < 4:
@@ -1556,16 +1657,33 @@ def _draw_tracks(frame: np.ndarray, tracks: Iterable[Any]) -> None:
         x1, y1, x2, y2 = [int(value) for value in bbox[:4]]
         track_id = getattr(track, "track_id", "?")
         class_name = getattr(track, "class_name", "object")
-        label = f"ID {track_id} {_object_type_vi(class_name)}"
-        color = (0, 255, 255)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+        class_vi = _object_type_vi(class_name)
+
+        # Phân biệt vật gần / xa để ưu tiên hiển thị
+        bbox_bottom_ratio = y2 / max(h, 1)
+        is_near = bbox_bottom_ratio > near_threshold_ratio
+
+        if is_near:
+            color = (0, 255, 255)        # vàng cyan - vật gần
+            label = f"ID {track_id} {class_vi}"
+            font_size = 18
+            stroke = 1
+            bbox_thick = 2
+        else:
+            color = (0, 200, 0)          # xanh lá - vật xa
+            label = class_vi             # chỉ tên class, bỏ ID cho gọn
+            font_size = 14
+            stroke = 1
+            bbox_thick = 2
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, bbox_thick)
         _draw_text(
             frame,
             label,
-            (x1, min(y2 + 4, frame.shape[0] - 22)),
+            (x1, min(y2 + 4, frame.shape[0] - 28)),
             color,
-            font_size=15,
-            stroke_width=2,
+            font_size=font_size,
+            stroke_width=stroke,
         )
 
 
@@ -1638,6 +1756,80 @@ def _draw_traffic_sign_warnings(frame: np.ndarray, warnings: List[Dict[str, Any]
         y += line_height
     
     return annotated
+
+
+def _select_ego_vehicle(
+    vehicles: Sequence[Dict[str, Any]],
+    image_width: int,
+) -> List[Dict[str, Any]]:
+    """Chọn xe 'ego' (xe mình) trong danh sách vehicles.
+
+    Trong cam trước (front-facing ADAS), xe mình là:
+      - Xe gần giữa ảnh nhất (gần image_width/2 theo phương ngang)
+      - VÀ có bbox-bottom lớn nhất (gần camera nhất)
+    Score = |vehicle_center.x - image_width/2| - vehicle_center.y
+    (càng nhỏ càng tốt: gần center và xuống thấp = gần cam)
+
+    Returns list chứa 0 hoặc 1 xe. Nếu vehicles rỗng, trả [].
+    """
+    if not vehicles:
+        return []
+
+    image_center_x = image_width / 2.0
+    candidates = []
+
+    for vehicle in vehicles:
+        center = vehicle.get("center")
+        if not center or len(center) < 2:
+            continue
+        try:
+            cx = float(center[0])
+            cy = float(center[1])
+        except (TypeError, ValueError):
+            continue
+        # Score: khoảng cách ngang tới center, trừ đi y lớn (gần cam hơn)
+        score = abs(cx - image_center_x) - cy * 0.5
+        candidates.append((score, vehicle))
+
+    if not candidates:
+        return [vehicles[0]] if vehicles else []
+
+    candidates.sort(key=lambda x: x[0])
+    return [candidates[0][1]]
+
+
+def _filter_lane_departure_for_ego(
+    lane_departure_results: Sequence[Dict[str, Any]],
+    image_width: int,
+) -> List[Dict[str, Any]]:
+    """Lọc lane_departure: chỉ giữ kết quả của xe ego (gần center + gần cam nhất)."""
+    if not lane_departure_results:
+        return list(lane_departure_results) if lane_departure_results else []
+
+    # Nếu chỉ 1 kết quả thì giữ luôn
+    if len(lane_departure_results) == 1:
+        return list(lane_departure_results)
+
+    image_center_x = image_width / 2.0
+    candidates = []
+
+    for result in lane_departure_results:
+        center = result.get("vehicle_center")
+        if not center or len(center) < 2:
+            continue
+        try:
+            cx = float(center[0])
+            cy = float(center[1])
+        except (TypeError, ValueError):
+            continue
+        score = abs(cx - image_center_x) - cy * 0.5
+        candidates.append((score, result))
+
+    if not candidates:
+        return list(lane_departure_results[:1])
+
+    candidates.sort(key=lambda x: x[0])
+    return [candidates[0][1]]
 
 
 def _evaluate_adas(models: Dict[str, Any], scene_context: Any, frame_size: Tuple[int, int]) -> Any:
@@ -1769,13 +1961,14 @@ def draw_results(
             counts["vehicle"] = len(vehicle_detections)
             _draw_vehicle_detections(output, vehicle_detections)
         elif module_name == "lane_detection":
-            lane_detections = models["lane_detection"].get_detections(frame)
+            lane_detections, _lane_masks = models["lane_detection"].detect_with_masks(frame, debug=True)
             counts["lane_detection"] = len(lane_detections)
             _draw_lane_detections(output, lane_detections)
         elif module_name == "lane_segmentation":
-            lane_mask = models["lane_segmentation"].get_lane_mask(frame)
-            counts["lane_segmentation"] = int(np.count_nonzero(lane_mask))
-            output = _overlay_lane_mask(output, lane_mask)
+            lane_class_masks = models["lane_segmentation"].get_all_class_masks(frame)
+            lane_mask = lane_class_masks.get("lane_line")
+            counts["lane_segmentation"] = int(np.count_nonzero(lane_mask)) if lane_mask is not None else 0
+            output = _overlay_lane_class_masks(output, lane_class_masks)
         elif module_name == "traffic_sign":
             output, traffic_sign_detections = models["traffic_sign"].detect_with_detections(frame, draw_on=output)
             counts["traffic_sign"] = getattr(models["traffic_sign"], "last_count", 0)
@@ -1809,6 +2002,13 @@ def draw_results(
     adas_output = _evaluate_adas(models, scene_context, frame_size=(frame.shape[1], frame.shape[0]))
     scene_context_dict = scene_context.to_dict()
     adas_output_dict = adas_output.to_dict()
+
+    # Lane departure chỉ áp dụng cho xe ego (cam trước): gần center + gần nhất
+    image_width = frame.shape[1]
+    ego_lane_departure = _filter_lane_departure_for_ego(
+        adas_output_dict.get("lane_departure", []), image_width=image_width
+    )
+    adas_output_dict["lane_departure"] = ego_lane_departure
     object_details = _build_object_details(
         vehicle_detections=vehicle_detections,
         pedestrian_detections=pedestrian_detections,
