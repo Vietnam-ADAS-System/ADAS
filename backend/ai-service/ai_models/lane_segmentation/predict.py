@@ -82,9 +82,41 @@ class LaneSegmenter:
             config=self.preprocessing_config,
         )
 
-    def get_lane_mask(self, image, imgsz: int = 640, class_id: int = 0) -> np.ndarray:
-        """Trả về mask nhị phân của class chỉ định (mặc định class 0 = lane_line)."""
+    def get_lane_mask(self, image, imgsz: int = 640, class_id: int = 1) -> np.ndarray:
+        """Trả về mask nhị phân của class chỉ định (mặc định class 1 = road)."""
         return self.segment(image, imgsz, class_id=class_id)
+
+    def get_all_class_masks(self, image, imgsz: int = 640) -> Dict[str, np.ndarray]:
+        """
+        Trả về dict mask nhị phân cho từng class.
+
+        Returns:
+            Dict với key là tên class ('lane_line', 'road') và value là mask uint8 (0/255).
+        """
+        if isinstance(image, (str, Path)):
+            image = cv2.imread(str(image))
+
+        results = self.predict(image, imgsz=imgsz)
+        h, w = image.shape[:2]
+
+        output_masks: Dict[str, np.ndarray] = {
+            name: np.zeros((h, w), dtype=np.uint8) for name in self.class_names.values()
+        }
+
+        if len(results) > 0 and results[0].masks is not None:
+            masks = results[0].masks.data.cpu().numpy()
+
+            if results[0].boxes is not None and len(results[0].boxes) > 0:
+                classes = results[0].boxes.cls.cpu().numpy().astype(int)
+                for mask, cls in zip(masks, classes):
+                    cls_name = self.class_names.get(int(cls))
+                    if cls_name is None:
+                        continue
+                    resized = cv2.resize(mask, (w, h))
+                    binary = (resized * 255).astype(np.uint8)
+                    output_masks[cls_name] = np.maximum(output_masks[cls_name], binary)
+
+        return output_masks
 
     def segment(self, image, imgsz: int = 640, class_id: int = 0):
         """Get segmentation mask only."""
@@ -130,10 +162,37 @@ class LaneSegmenter:
 
         results = self.predict(image)
 
-        # Draw masks
-        annotated = results[0].plot()
+        return self._overlay_masks(image, results[0])
 
-        return annotated
+    def _overlay_masks(self, image: np.ndarray, result) -> np.ndarray:
+        """Overlay segmentation masks with custom colors per class.
+
+        class 0 = lane_line  -> light red
+        class 1 = road       -> hidden (no overlay, only the lane is drawn)
+        """
+        if result.masks is None or result.boxes is None or len(result.boxes) == 0:
+            return image
+
+        overlay = image.copy()
+        h, w = image.shape[:2]
+        masks = result.masks.data.cpu().numpy()
+        classes = result.boxes.cls.cpu().numpy().astype(int)
+
+        # BGR color (OpenCV uses BGR, not RGB)
+        lane_color_bgr = (120, 120, 255)  # light red in BGR
+        road_color_bgr = None  # road is hidden per user request
+
+        for mask, cls in zip(masks, classes):
+            color = lane_color_bgr if int(cls) == 0 else road_color_bgr
+            if color is None:
+                continue  # skip this class (e.g. road hidden)
+
+            resized = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+            color_layer = np.zeros_like(image, dtype=np.uint8)
+            color_layer[resized > 0] = color
+            overlay = cv2.addWeighted(overlay, 1.0, color_layer, 0.45, 0)
+
+        return cv2.addWeighted(image, 1.0 - 0.45, overlay, 0.45, 0)
 
 
 def predict_from_video(video_path: str, weights_path: str, output_path: str = None):
